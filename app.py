@@ -689,7 +689,17 @@ def init_db():
             conn.execute("ALTER TABLE action_items ADD COLUMN archived INTEGER DEFAULT 0")
         except:
             pass  # Column already exists
-        
+
+        # Add source_file and source_ref columns for task tracking
+        try:
+            conn.execute("ALTER TABLE tasks ADD COLUMN source_file TEXT DEFAULT NULL")
+        except:
+            pass  # Column already exists
+        try:
+            conn.execute("ALTER TABLE tasks ADD COLUMN source_ref TEXT DEFAULT NULL")
+        except:
+            pass  # Column already exists
+
         # Chat messages table for persistent command bar history
         conn.execute("""
             CREATE TABLE IF NOT EXISTS chat_messages (
