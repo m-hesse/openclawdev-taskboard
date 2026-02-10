@@ -502,12 +502,18 @@ DO NOT navigate to any external URLs. Your browser access is strictly for review
 
 async def spawn_agent_session(task_id: int, task_title: str, task_description: str, agent_name: str):
     """Spawn a OPENCLAW sub-agent session for a task via tools/invoke API."""
+    print(f"🚀 SPAWN-AGENT: Task #{task_id} | Agent: {agent_name}")
+
     if not OPENCLAW_ENABLED:
+        print(f"⚠️  SPAWN-AGENT SKIPPED: OpenClaw not enabled (OPENCLAW_TOKEN not set)")
         return None
-    
+
     agent_id = AGENT_TO_OPENCLAW_ID.get(agent_name)
     if not agent_id:
+        print(f"⚠️  SPAWN-AGENT SKIPPED: Unknown agent '{agent_name}' (not in AGENT_TO_OPENCLAW_ID)")
         return None  # Don't spawn for unknown agents
+
+    print(f"🔍 SPAWN-AGENT: Mapped {agent_name} → {agent_id}")
     # Note: Main agent (Jarvis) CAN spawn subagents now - no special case
     
     # Build the task prompt with guardrails
@@ -559,23 +565,36 @@ Begin now.
                 "Authorization": f"Bearer {OPENCLAW_TOKEN}",
                 "Content-Type": "application/json"
             }
+
+            print(f"📡 SPAWN-AGENT: Calling OpenClaw API - {OPENCLAW_GATEWAY_URL}/tools/invoke")
+            print(f"📦 SPAWN-AGENT: Payload - tool: sessions_spawn, agentId: {agent_id}, label: task-{task_id}")
+
             response = await client.post(
                 f"{OPENCLAW_GATEWAY_URL}/tools/invoke",
                 json=payload,
                 headers=headers
             )
+
+            print(f"📥 SPAWN-AGENT: Response status: {response.status_code}")
+
             result = response.json() if response.status_code == 200 else None
+
             if result and result.get("ok"):
-                print(f"✅ Spawned {agent_name} ({agent_id}) for task #{task_id}")
-                # Add a comment to the task noting the agent was spawned
                 spawn_info = result.get("result", {})
                 run_id = spawn_info.get("runId", "unknown")
                 session_key = spawn_info.get("childSessionKey", None)
-                
+
+                print(f"✅ SPAWN-AGENT SUCCESS: {agent_name} ({agent_id}) for task #{task_id}")
+                print(f"📋 SPAWN-AGENT: Session key: {session_key} | Run ID: {run_id}")
+
                 # Save session key to database for follow-up messages
                 if session_key:
+                    print(f"💾 SPAWN-AGENT: Saving session key to database")
                     set_task_session(task_id, session_key)
-                
+                else:
+                    print(f"⚠️  SPAWN-AGENT: No session key in response!")
+
+                print(f"💬 SPAWN-AGENT: Posting spawn notification comment")
                 async with httpx.AsyncClient(timeout=5.0) as comment_client:
                     await comment_client.post(
                         f"{TASKBOARD_BASE_URL}/api/tasks/{task_id}/comments",
@@ -584,12 +603,17 @@ Begin now.
                             "content": f"🤖 **{agent_name}** agent spawned automatically.\n\nSession: `{session_key or 'unknown'}`\nRun ID: `{run_id}`\n\n💬 *Reply to this task and the agent will respond.*"
                         }
                     )
+                print(f"✅ SPAWN-AGENT COMPLETE")
                 return result
             else:
-                print(f"❌ Failed to spawn {agent_name}: {response.text}")
+                error_msg = response.text if response.status_code != 200 else result
+                print(f"❌ SPAWN-AGENT FAILED: Status {response.status_code}")
+                print(f"❌ SPAWN-AGENT ERROR: {error_msg}")
                 return None
     except Exception as e:
-        print(f"❌ Failed to spawn agent session: {e}")
+        print(f"❌ SPAWN-AGENT EXCEPTION: {type(e).__name__}: {e}")
+        import traceback
+        print(f"❌ SPAWN-AGENT TRACEBACK: {traceback.format_exc()}")
         return None
 
 # =============================================================================
@@ -851,6 +875,126 @@ class IPRestrictionMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(IPRestrictionMiddleware)
 
+# Request Logging Middleware
+class RequestLoggingMiddleware(BaseHTTPMiddleware):
+    """Batch API requests and log summaries to reduce spam."""
+
+    def __init__(self, app):
+        super().__init__(app)
+        self.batch = []  # Collected requests waiting to be logged
+        self.batch_window = 0.5  # seconds
+        self.last_flush = datetime.now().timestamp()
+
+    async def dispatch(self, request: Request, call_next):
+        # Skip logging for static files and data attachments
+        if request.url.path.startswith(("/static/", "/data/")):
+            return await call_next(request)
+
+        path = request.url.path
+        method = request.method
+        client_ip = request.client.host if request.client else "unknown"
+
+        # Execute request normally (no delay!)
+        start_time = datetime.now()
+        response = await call_next(request)
+        duration = (datetime.now() - start_time).total_seconds()
+
+        # Collect request for batched logging
+        if path.startswith("/api/"):
+            # Extract pattern and task ID
+            pattern = self._get_pattern(path)
+            task_id = self._extract_task_id(path)
+
+            self.batch.append({
+                "method": method,
+                "pattern": pattern,
+                "path": path,
+                "task_id": task_id,
+                "status": response.status_code,
+                "duration": duration,
+                "client_ip": client_ip
+            })
+
+            # Flush if window expired
+            now = datetime.now().timestamp()
+            if now - self.last_flush >= self.batch_window and self.batch:
+                self._flush_batch()
+        elif method in ["POST", "PATCH", "DELETE", "PUT"]:
+            # Important non-API requests - log immediately
+            emoji = self._get_emoji(method, response.status_code)
+            status_emoji = "✅" if 200 <= response.status_code < 300 else "⚠️" if response.status_code < 500 else "❌"
+            print(f"{emoji} {method} {path} - {status_emoji} {response.status_code} ({duration:.3f}s)")
+
+        return response
+
+    def _flush_batch(self):
+        """Flush collected requests as a compact summary."""
+        if not self.batch:
+            return
+
+        # Group by pattern
+        groups = {}
+        for req in self.batch:
+            key = f"{req['method']}:{req['pattern']}"
+            if key not in groups:
+                groups[key] = {"requests": [], "task_ids": set(), "total_duration": 0, "errors": 0}
+            groups[key]["requests"].append(req)
+            if req["task_id"]:
+                groups[key]["task_ids"].add(req["task_id"])
+            groups[key]["total_duration"] += req["duration"]
+            if req["status"] >= 400:
+                groups[key]["errors"] += 1
+
+        # Log compact summary
+        total = len(self.batch)
+        print(f"\n📊 {total} requests ({self.batch_window}s):")
+
+        for key, group in groups.items():
+            method, pattern = key.split(":", 1)
+            count = len(group["requests"])
+            task_ids = sorted(group["task_ids"])
+            avg_duration = group["total_duration"] / count
+            emoji = self._get_emoji(method, 200)
+
+            task_info = f" [{','.join(map(str, task_ids[:10]))}{'...' if len(task_ids) > 10 else ''}]" if task_ids else ""
+            error_info = f" ⚠️{group['errors']}" if group['errors'] > 0 else ""
+
+            print(f"  {emoji} {method} {pattern}: {count}x @ {avg_duration:.3f}s{task_info}{error_info}")
+
+        self.batch = []
+        self.last_flush = datetime.now().timestamp()
+
+    def _get_pattern(self, path: str) -> str:
+        """Convert path to pattern (replace IDs with {id})."""
+        import re
+        pattern = re.sub(r'/\d+(/|$)', '/{id}\\1', path)
+        return pattern
+
+    def _extract_task_id(self, path: str) -> int:
+        """Extract task ID from path if present."""
+        if "/tasks/" in path:
+            parts = path.split("/tasks/")
+            if len(parts) > 1:
+                id_part = parts[1].split("/")[0]
+                if id_part.isdigit():
+                    return int(id_part)
+        return None
+
+    def _get_emoji(self, method: str, status: int) -> str:
+        """Get emoji for request method."""
+        if status >= 400:
+            return "❌"
+        emoji_map = {
+            "GET": "📖",
+            "POST": "📝",
+            "PATCH": "✏️",
+            "PUT": "📤",
+            "DELETE": "🗑️",
+        }
+        return emoji_map.get(method, "🔷")
+
+app.add_middleware(RequestLoggingMiddleware)
+
 # Initialize DB on startup
 @app.on_event("startup")
 def startup():
@@ -943,22 +1087,35 @@ def get_task(task_id: int):
 @app.post("/api/tasks", response_model=Task)
 async def create_task(task: TaskCreate):
     """Create a new task."""
+    print(f"📝 CREATE-TASK: {task.title} | Status: {task.status} | Agent: {task.agent} | Priority: {task.priority}")
     now = datetime.now().isoformat()
-    with get_db() as conn:
-        cursor = conn.execute(
-            """INSERT INTO tasks (title, description, status, priority, agent, due_date, created_at, updated_at, board, source_file, source_ref)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (task.title, task.description, task.status, task.priority, task.agent, task.due_date, now, now, task.board, task.source_file, task.source_ref)
-        )
-        conn.commit()
-        task_id = cursor.lastrowid
-        log_activity(task_id, "created", task.agent, f"Created: {task.title}")
-        
-        row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
-        result = dict(row)
-    
+
+    try:
+        with get_db() as conn:
+            print(f"💾 CREATE-TASK: Inserting into database")
+            cursor = conn.execute(
+                """INSERT INTO tasks (title, description, status, priority, agent, due_date, created_at, updated_at, board, source_file, source_ref)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (task.title, task.description, task.status, task.priority, task.agent, task.due_date, now, now, task.board, task.source_file, task.source_ref)
+            )
+            conn.commit()
+            task_id = cursor.lastrowid
+            print(f"✅ CREATE-TASK: Database insert successful - Task ID: {task_id}")
+
+            log_activity(task_id, "created", task.agent, f"Created: {task.title}")
+
+            row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+            result = dict(row)
+    except Exception as e:
+        print(f"❌ CREATE-TASK: Database error - {type(e).__name__}: {e}")
+        import traceback
+        print(f"❌ CREATE-TASK: Traceback - {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Failed to create task: {str(e)}")
+
     # Broadcast to all clients
+    print(f"📡 CREATE-TASK: Broadcasting task_created event")
     await manager.broadcast({"type": "task_created", "task": result})
+    print(f"✅ CREATE-TASK COMPLETE: Task #{task_id}")
     return result
 
 @app.patch("/api/tasks/{task_id}", response_model=Task)
@@ -1038,17 +1195,25 @@ def get_agent_tasks(agent: str):
 @app.post("/api/tasks/{task_id}/start-work")
 async def start_work(task_id: int, agent: str):
     """Mark that an agent is actively working on a task. Auto-moves to In Progress."""
+    print(f"🤖 START-WORK: Task #{task_id} | Agent: {agent}")
+
     with get_db() as conn:
         row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
         if not row:
+            print(f"❌ START-WORK FAILED: Task #{task_id} not found")
             raise HTTPException(status_code=404, detail="Task not found")
-        
-        current_status = row["status"]
+
+        task = dict(row)
+        current_status = task["status"]
+        current_working = task.get("working_agent")
         now = datetime.now().isoformat()
-        
+
+        print(f"📋 START-WORK: Current status: {current_status} | Current working_agent: {current_working}")
+
         # Auto-move to In Progress if in Backlog or Blocked
         moved = False
         if current_status in ["Backlog", "Blocked"]:
+            print(f"🔄 START-WORK: Auto-moving from {current_status} → In Progress")
             conn.execute(
                 "UPDATE tasks SET working_agent = ?, status = ?, updated_at = ? WHERE id = ?",
                 (agent, "In Progress", now, task_id)
@@ -1056,83 +1221,119 @@ async def start_work(task_id: int, agent: str):
             moved = True
             log_activity(task_id, "status_change", agent, f"Auto-moved from {current_status} to In Progress (agent started work)")
         else:
+            print(f"💾 START-WORK: Updating working_agent={agent} (status unchanged: {current_status})")
             conn.execute(
                 "UPDATE tasks SET working_agent = ?, updated_at = ? WHERE id = ?",
                 (agent, now, task_id)
             )
-        conn.commit()
-        
+
+        try:
+            conn.commit()
+            print(f"✅ START-WORK: Database updated successfully")
+        except Exception as e:
+            print(f"❌ START-WORK: Database commit failed - {e}")
+            raise
+
         row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
         result = dict(row)
-    
+
+    print(f"📡 START-WORK: Broadcasting work_started event")
     await manager.broadcast({"type": "work_started", "task_id": task_id, "agent": agent})
     if moved:
+        print(f"📡 START-WORK: Broadcasting task_updated event (status changed)")
         await manager.broadcast({"type": "task_updated", "task": result})
+
+    print(f"✅ START-WORK COMPLETE: Task #{task_id} | Agent: {agent} | Moved: {moved}")
     return {"status": "working", "task_id": task_id, "agent": agent, "moved_to": "In Progress" if moved else None}
 
 @app.post("/api/tasks/{task_id}/stop-work")
 async def stop_work(task_id: int, agent: str = None, outcome: str = None, reason: str = None):
-    """Mark that an agent has stopped working on a task. 
-    
+    """Mark that an agent has stopped working on a task.
+
     Args:
         outcome: Optional - "review" or "blocked" to auto-move the card
         reason: Optional - reason for the move (used for action items)
     """
+    print(f"🛑 STOP-WORK: Task #{task_id} | Agent: {agent} | Outcome: {outcome} | Reason: {reason}")
+
     with get_db() as conn:
         row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
         if not row:
+            print(f"❌ STOP-WORK FAILED: Task #{task_id} not found")
             raise HTTPException(status_code=404, detail="Task not found")
-        
+
+        task = dict(row)
         now = datetime.now().isoformat()
-        current_status = row["status"]
+        current_status = task["status"]
+        current_working = task.get("working_agent")
         new_status = None
         action_item = None
-        
+
+        print(f"📋 STOP-WORK: Current status: {current_status} | Current working_agent: {current_working}")
+
         # Determine target status based on outcome
         if outcome == "review" and current_status == "In Progress":
             new_status = "Review"
+            print(f"🔄 STOP-WORK: Auto-moving to Review (outcome=review)")
             # Create completion action item
             reason_text = reason or "Work completed, ready for review"
             cursor = conn.execute(
                 "INSERT INTO action_items (task_id, agent, content, item_type, created_at) VALUES (?, ?, ?, ?, ?)",
                 (task_id, agent or "Agent", reason_text, "completion", now)
             )
-            action_item = {"id": cursor.lastrowid, "task_id": task_id, "agent": agent or "Agent", 
+            action_item = {"id": cursor.lastrowid, "task_id": task_id, "agent": agent or "Agent",
                           "content": reason_text, "item_type": "completion", "resolved": False, "created_at": now}
+            print(f"📝 STOP-WORK: Created completion action item #{cursor.lastrowid}")
         elif outcome == "blocked" and current_status == "In Progress":
             new_status = "Blocked"
+            print(f"🔄 STOP-WORK: Auto-moving to Blocked (outcome=blocked)")
             # Create blocker action item
             reason_text = reason or "Blocked - awaiting input"
             cursor = conn.execute(
                 "INSERT INTO action_items (task_id, agent, content, item_type, created_at) VALUES (?, ?, ?, ?, ?)",
                 (task_id, agent or "Agent", reason_text, "blocker", now)
             )
-            action_item = {"id": cursor.lastrowid, "task_id": task_id, "agent": agent or "Agent", 
+            action_item = {"id": cursor.lastrowid, "task_id": task_id, "agent": agent or "Agent",
                           "content": reason_text, "item_type": "blocker", "resolved": False, "created_at": now}
-        
+            print(f"📝 STOP-WORK: Created blocker action item #{cursor.lastrowid}")
+        else:
+            print(f"💾 STOP-WORK: Clearing working_agent (no status change)")
+
         # Update task
         if new_status:
+            print(f"💾 STOP-WORK: Updating DB - working_agent=NULL, status={new_status}")
             conn.execute(
                 "UPDATE tasks SET working_agent = NULL, status = ?, updated_at = ? WHERE id = ?",
                 (new_status, now, task_id)
             )
             log_activity(task_id, "status_change", agent or "Agent", f"Auto-moved to {new_status} (agent stopped work)")
         else:
+            print(f"💾 STOP-WORK: Updating DB - working_agent=NULL (status unchanged)")
             conn.execute(
                 "UPDATE tasks SET working_agent = NULL, updated_at = ? WHERE id = ?",
                 (now, task_id)
             )
-        conn.commit()
-        
+
+        try:
+            conn.commit()
+            print(f"✅ STOP-WORK: Database updated successfully")
+        except Exception as e:
+            print(f"❌ STOP-WORK: Database commit failed - {e}")
+            raise
+
         row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
         result = dict(row)
-    
-    await manager.broadcast({"type": "work_stopped", "task_id": task_id})
+
+    print(f"📡 STOP-WORK: Broadcasting work_stopped event")
+    await manager.broadcast({"type": "work_stopped", "task_id": task_id, "agent": agent or current_working})
     if new_status:
+        print(f"📡 STOP-WORK: Broadcasting task_updated event (status: {new_status})")
         await manager.broadcast({"type": "task_updated", "task": result})
     if action_item:
+        print(f"📡 STOP-WORK: Broadcasting action_item_added event")
         await manager.broadcast({"type": "action_item_added", "task_id": task_id, "item": action_item})
-    
+
+    print(f"✅ STOP-WORK COMPLETE: Task #{task_id} | New status: {new_status or current_status}")
     return {"status": "stopped", "task_id": task_id, "moved_to": new_status}
 
 class MoveRequest(BaseModel):
@@ -1143,26 +1344,40 @@ class MoveRequest(BaseModel):
 @app.post("/api/tasks/{task_id}/move")
 async def move_task(task_id: int, status: str = None, agent: str = None, reason: str = None):
     """Quick move task to a new status with workflow rules."""
+    print(f"📋 MOVE-TASK: Task #{task_id} → {status} | Agent: {agent} | Reason: {reason}")
     now = datetime.now().isoformat()
-    
+
     with get_db() as conn:
         row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
         if not row:
+            print(f"❌ MOVE-TASK FAILED: Task #{task_id} not found")
             raise HTTPException(status_code=404, detail="Task not found")
-        
+
         task = dict(row)
         old_status = task["status"]
-        
+        old_working = task.get("working_agent")
+
+        print(f"📋 MOVE-TASK: Current state - Status: {old_status} | Working: {old_working} | Assigned: {task.get('agent')}")
+
         # RULE: Only User (human) can move to Done
         if status == "Done" and agent != "User":
+            print(f"❌ MOVE-TASK BLOCKED: Only User can move to Done (agent={agent})")
             raise HTTPException(status_code=403, detail="Only User can move tasks to Done")
-        
+
         # Update status
+        print(f"💾 MOVE-TASK: Updating status {old_status} → {status}")
         conn.execute(
             "UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?",
             (status, now, task_id)
         )
-        conn.commit()
+
+        try:
+            conn.commit()
+            print(f"✅ MOVE-TASK: Database updated successfully")
+        except Exception as e:
+            print(f"❌ MOVE-TASK: Database commit failed - {e}")
+            raise
+
         log_activity(task_id, "moved", agent, f"Moved to {status}")
         
         # AUTO-CREATE ACTION ITEMS based on transition
@@ -1212,7 +1427,7 @@ async def move_task(task_id: int, status: str = None, agent: str = None, reason:
                 (task_id,)
             )
             conn.commit()
-        await manager.broadcast({"type": "work_stopped", "task_id": task_id})
+        await manager.broadcast({"type": "work_stopped", "task_id": task_id, "agent": old_working})
         
         session_key = get_task_session(task_id)
         if session_key:
