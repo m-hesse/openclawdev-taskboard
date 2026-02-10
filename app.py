@@ -500,9 +500,25 @@ ALLOWED URLs (localhost only):
 DO NOT navigate to any external URLs. Your browser access is strictly for reviewing the local app."""
 }
 
+_spawning_tasks = set()  # Guard against concurrent spawns for same task
+
 async def spawn_agent_session(task_id: int, task_title: str, task_description: str, agent_name: str):
     """Spawn a OPENCLAW sub-agent session for a task via tools/invoke API."""
     print(f"🚀 SPAWN-AGENT: Task #{task_id} | Agent: {agent_name}")
+
+    # Prevent concurrent spawns for the same task
+    if task_id in _spawning_tasks:
+        print(f"⏩ SPAWN-AGENT SKIPPED: Already spawning for task #{task_id}")
+        return None
+    _spawning_tasks.add(task_id)
+
+    try:
+        return await _do_spawn_agent_session(task_id, task_title, task_description, agent_name)
+    finally:
+        _spawning_tasks.discard(task_id)
+
+async def _do_spawn_agent_session(task_id: int, task_title: str, task_description: str, agent_name: str):
+    """Internal spawn implementation."""
 
     if not OPENCLAW_ENABLED:
         print(f"⚠️  SPAWN-AGENT SKIPPED: OpenClaw not enabled (OPENCLAW_TOKEN not set)")
@@ -578,6 +594,7 @@ Begin now.
             print(f"📥 SPAWN-AGENT: Response status: {response.status_code}")
 
             result = response.json() if response.status_code == 200 else None
+            print(f"📥 SPAWN-AGENT: Response body: {result}")
 
             if result and result.get("ok"):
                 spawn_info = result.get("result", {})
@@ -1243,6 +1260,20 @@ async def start_work(task_id: int, agent: str):
         print(f"📡 START-WORK: Broadcasting task_updated event (status changed)")
         await manager.broadcast({"type": "task_updated", "task": result})
 
+    # AUTO-SPAWN: Start agent session in OpenClaw if not already running
+    if agent in AGENT_TO_OPENCLAW_ID and agent != "User":
+        existing_session = get_task_session(task_id)
+        if not existing_session:
+            print(f"🚀 START-WORK: Auto-spawning {agent} for task #{task_id}")
+            await spawn_agent_session(
+                task_id=task_id,
+                task_title=result["title"],
+                task_description=result.get("description", ""),
+                agent_name=agent
+            )
+        else:
+            print(f"⏩ START-WORK: Session already exists for task #{task_id}: {existing_session}")
+
     print(f"✅ START-WORK COMPLETE: Task #{task_id} | Agent: {agent} | Moved: {moved}")
     return {"status": "working", "task_id": task_id, "agent": agent, "moved_to": "In Progress" if moved else None}
 
@@ -1416,7 +1447,23 @@ async def move_task(task_id: int, status: str = None, agent: str = None, reason:
     await manager.broadcast({"type": "task_updated", "task": result})
     if action_item:
         await manager.broadcast({"type": "action_item_added", "task_id": task_id, "item": action_item})
-    
+
+    # AUTO-SPAWN: When moving to In Progress, spawn the assigned agent's session
+    if status == "In Progress" and old_status != "In Progress":
+        assigned_agent = result.get("agent", "Unassigned")
+        if assigned_agent in AGENT_TO_OPENCLAW_ID and assigned_agent != "User":
+            existing_session = get_task_session(task_id)
+            if not existing_session:
+                print(f"🚀 MOVE-TASK: Auto-spawning {assigned_agent} for task #{task_id}")
+                await spawn_agent_session(
+                    task_id=task_id,
+                    task_title=result["title"],
+                    task_description=result.get("description", ""),
+                    agent_name=assigned_agent
+                )
+            else:
+                print(f"⏩ MOVE-TASK: Session already exists for task #{task_id}: {existing_session}")
+
     # CLEANUP: When moving to Done, clear the agent session AND working indicator
     session_cleared = False
     if status == "Done":

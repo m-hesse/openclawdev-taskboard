@@ -2806,7 +2806,7 @@
                             <div class="chat-working-indicator" id="chatWorkingIndicator" style="display: none;" title="">
                                 <div id="chatWorkingAgents" style="display: flex; gap: 0.25rem; align-items: center;"></div>
                             </div>
-                            <button class="stop-btn-mini" id="stopAgentBtn" onclick="stopTaskAgent()" title="Stop agent">■</button>
+                            <button class="stop-btn-mini" id="stopAgentBtn" onclick="toggleTaskAgent()" title="Start agent">▶</button>
                             <button class="btn btn-secondary" onclick="toggleExportMode()" title="Export to MD" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">📥</button>
                             <button class="btn btn-secondary" onclick="toggleTaskDetails()" id="toggleDetailsBtn" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">Hide Details</button>
                         </div>
@@ -3328,11 +3328,8 @@
                 sourceInfo.style.display = 'none';
             }
             
-            // Update stop button tooltip with agent name if known
-            const stopAgentBtn = document.getElementById('stopAgentBtn');
-            stopAgentBtn.title = task.working_agent ? `Stop ${task.working_agent}` : 'Stop agent';
-            
-            // Show working indicator if agent is currently working
+            // Update toggle button state based on working agent
+            updateAgentToggleButton(!!task.working_agent, task.working_agent);
             if (task.working_agent) {
                 showChatWorkingIndicator(task.working_agent);
             } else {
@@ -4476,24 +4473,41 @@
                     const openTaskId = document.getElementById('taskId').value;
                     if (openTaskId && parseInt(openTaskId) === data.task_id && data.agent) {
                         showChatWorkingIndicator(data.agent);
+                        updateAgentToggleButton(true, data.agent);
                     }
                 }
                 
                 if (data.type === 'work_stopped') {
-                    // Remove agent from tracking (supports multiple)
-                    if (data.task_id && data.agent && workingAgentsByTask[data.task_id]) {
-                        workingAgentsByTask[data.task_id].delete(data.agent);
-                        if (workingAgentsByTask[data.task_id].size === 0) {
+                    // Remove agent from tracking
+                    if (data.task_id) {
+                        if (data.agent && workingAgentsByTask[data.task_id]) {
+                            // Specific agent stopped - remove only that one
+                            workingAgentsByTask[data.task_id].delete(data.agent);
+                            if (workingAgentsByTask[data.task_id].size === 0) {
+                                delete workingAgentsByTask[data.task_id];
+                            }
+                        } else {
+                            // No agent specified or unknown - clear all working agents for this task
                             delete workingAgentsByTask[data.task_id];
                         }
                     }
                     // Refresh board to update AI working indicator on card
                     await loadTasks();
                     renderBoard();
-                    // Also remove specific agent from modal indicator if this task is open
+                    // Also remove agent from modal indicator if this task is open
                     const openTaskId = document.getElementById('taskId').value;
-                    if (openTaskId && parseInt(openTaskId) === data.task_id && data.agent) {
-                        removeChatWorkingAgent(data.agent);
+                    if (openTaskId && parseInt(openTaskId) === data.task_id) {
+                        if (data.agent) {
+                            removeChatWorkingAgent(data.agent);
+                        } else {
+                            // Clear all chat working indicators if no specific agent
+                            const chatWorkingAgents = document.getElementById('chatWorkingAgents');
+                            if (chatWorkingAgents) chatWorkingAgents.innerHTML = '';
+                            document.getElementById('chatWorkingIndicator').style.display = 'none';
+                        }
+                        // Update toggle button state
+                        const stillWorking = workingAgentsByTask[data.task_id] && workingAgentsByTask[data.task_id].size > 0;
+                        updateAgentToggleButton(stillWorking, stillWorking ? Array.from(workingAgentsByTask[data.task_id])[0] : null);
                     }
                 }
                 
@@ -4857,46 +4871,69 @@
             }
         }
         
-        // Stop agent working on a task
-        async function stopTaskAgent() {
+        // Update the agent toggle button appearance
+        function updateAgentToggleButton(isWorking, agentName) {
+            const btn = document.getElementById('stopAgentBtn');
+            if (!btn) return;
+            if (isWorking) {
+                btn.innerHTML = '■';
+                btn.title = `Stop ${agentName || 'agent'}`;
+                btn.style.background = 'rgba(239, 68, 68, 0.15)';
+                btn.style.borderColor = 'var(--critical)';
+                btn.style.color = 'var(--critical)';
+            } else {
+                btn.innerHTML = '▶';
+                btn.title = 'Start agent';
+                btn.style.background = 'rgba(34, 197, 94, 0.15)';
+                btn.style.borderColor = 'var(--low)';
+                btn.style.color = 'var(--low)';
+            }
+            btn.disabled = false;
+        }
+
+        // Toggle agent working on a task (start/stop)
+        async function toggleTaskAgent() {
             const taskId = document.getElementById('taskId').value;
             if (!taskId) return;
-            
+
             const btn = document.getElementById('stopAgentBtn');
             btn.disabled = true;
-            
+
+            const task = tasks.find(t => t.id == taskId);
+            if (!task) { btn.disabled = false; return; }
+
+            // Determine if agent is currently working
+            const isWorking = !!(task.working_agent || (workingAgentsByTask[taskId] && workingAgentsByTask[taskId].size > 0));
+
             try {
-                // Get the task's session key
-                const task = tasks.find(t => t.id == taskId);
-                if (task && task.agent_session_key) {
-                    await fetch(`/api/sessions/${encodeURIComponent(task.agent_session_key)}/stop`, {
+                if (isWorking) {
+                    // === STOP ===
+                    if (task.agent_session_key) {
+                        await fetch(`/api/sessions/${encodeURIComponent(task.agent_session_key)}/stop`, {
+                            method: 'POST'
+                        });
+                    }
+                    await fetch(`/api/tasks/${taskId}/stop-work`, { method: 'POST' });
+                    hideChatWorkingIndicator();
+                } else {
+                    // === START ===
+                    const agentName = task.agent || 'Agent';
+                    await fetch(`/api/tasks/${taskId}/start-work?agent=${encodeURIComponent(agentName)}`, {
                         method: 'POST'
                     });
                 }
-                
-                // Also stop the work indicator
-                await fetch(`/api/tasks/${taskId}/stop-work`, { method: 'POST' });
-                
-                // Hide chat working indicator
-                hideChatWorkingIndicator();
-                
-                // Visual feedback
-                btn.style.background = 'var(--low)';
-                btn.style.borderColor = 'var(--low)';
-                btn.style.color = 'white';
-                
-                setTimeout(() => {
-                    btn.disabled = false;
-                    btn.style.background = '';
-                    btn.style.borderColor = '';
-                    btn.style.color = '';
-                }, 2000);
-                
+
                 // Refresh board
                 await loadTasks();
                 renderBoard();
+
+                // Update button state based on new state
+                const updatedTask = tasks.find(t => t.id == taskId);
+                if (updatedTask) {
+                    updateAgentToggleButton(!!updatedTask.working_agent, updatedTask.working_agent);
+                }
             } catch (e) {
-                console.error('Error stopping agent:', e);
+                console.error('Error toggling agent:', e);
                 btn.disabled = false;
             }
         }
