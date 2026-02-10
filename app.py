@@ -66,6 +66,7 @@ MENTION_PATTERN = re.compile(r'@(' + '|'.join(re.escape(a) for a in MENTIONABLE_
 OPENCLAW_GATEWAY_URL = os.getenv("OPENCLAW_GATEWAY_URL", "http://host.docker.internal:18789")
 OPENCLAW_TOKEN = os.getenv("OPENCLAW_TOKEN", "")
 TASKBOARD_API_KEY = os.getenv("TASKBOARD_API_KEY", "")
+TASKBOARD_BASE_URL = os.getenv("TASKBOARD_BASE_URL", "http://localhost:8080")
 OPENCLAW_ENABLED = bool(OPENCLAW_TOKEN)
 
 # Project configuration (customize in .env)
@@ -141,7 +142,7 @@ async def notify_OPENCLAW(task_id: int, task_title: str, comment_agent: str, com
             # Use OPENCLAW's cron wake endpoint
             payload = {
                 "action": "wake",
-                "text": f"💬 Task Board: New comment on #{task_id} ({task_title}) from {comment_agent}:\n\n{comment_content[:200]}{'...' if len(comment_content) > 200 else ''}\n\nCheck and respond: http://localhost:8080"
+                "text": f"💬 Task Board: New comment on #{task_id} ({task_title}) from {comment_agent}:\n\n{comment_content[:200]}{'...' if len(comment_content) > 200 else ''}\n\nCheck and respond: {TASKBOARD_BASE_URL}"
             }
             headers = {
                 "Authorization": f"Bearer {OPENCLAW_TOKEN}",
@@ -221,11 +222,11 @@ You previously worked on this task and moved it to Review. User has a follow-up 
 {system_prompt}
 
 ## Instructions:
-1. Call start-work API: POST http://localhost:8080/api/tasks/{task_id}/start-work?agent={agent_name}
+1. Call start-work API: POST {TASKBOARD_BASE_URL}/api/tasks/{task_id}/start-work?agent={agent_name}
 2. Read the context and User's question
-3. Respond helpfully by posting a comment: POST http://localhost:8080/api/tasks/{task_id}/comments
+3. Respond helpfully by posting a comment: POST {TASKBOARD_BASE_URL}/api/tasks/{task_id}/comments
 4. Keep your response focused on what User asked
-5. Call stop-work API: POST http://localhost:8080/api/tasks/{task_id}/stop-work?agent={agent_name}
+5. Call stop-work API: POST {TASKBOARD_BASE_URL}/api/tasks/{task_id}/stop-work?agent={agent_name}
    - Add &outcome=review&reason=<summary> if work is complete
    - Add &outcome=blocked&reason=<why> if you need more input
 
@@ -312,10 +313,10 @@ async def spawn_mentioned_agent(task_id: int, task_title: str, task_description:
 {system_prompt}
 
 ## Instructions:
-1. Call start-work API: POST http://localhost:8080/api/tasks/{task_id}/start-work?agent={mentioned_agent}
+1. Call start-work API: POST {TASKBOARD_BASE_URL}/api/tasks/{task_id}/start-work?agent={mentioned_agent}
 2. Review the task from YOUR perspective ({mentioned_agent})
-3. Post your findings/response as a comment: POST http://localhost:8080/api/tasks/{task_id}/comments
-4. Call stop-work API: POST http://localhost:8080/api/tasks/{task_id}/stop-work?agent={mentioned_agent}
+3. Post your findings/response as a comment: POST {TASKBOARD_BASE_URL}/api/tasks/{task_id}/comments
+4. Call stop-work API: POST {TASKBOARD_BASE_URL}/api/tasks/{task_id}/stop-work?agent={mentioned_agent}
 
 **Note:** You are NOT the assigned owner of this task. You're providing your expertise because you were tagged.
 Do NOT move the task (no outcome param) — that's the owner's job.
@@ -353,7 +354,7 @@ Respond now with your assessment.
                 # Post system comment about the spawn
                 async with httpx.AsyncClient(timeout=5.0) as comment_client:
                     await comment_client.post(
-                        f"http://localhost:8080/api/tasks/{task_id}/comments",
+                        f"{TASKBOARD_BASE_URL}/api/tasks/{task_id}/comments",
                         json={
                             "agent": "System",
                             "content": f"📢 **{mentioned_agent}** was tagged by {mentioner} and is now reviewing this task."
@@ -405,11 +406,11 @@ ESCALATION CHAIN:
 4. {HUMAN_SUPERVISOR_LABEL} has final authority on all decisions
 
 TASK BOARD INTEGRATION:
-- Use start-work API when beginning: POST http://localhost:8080/api/tasks/{{task_id}}/start-work?agent={{your_name}}
-- Post updates as comments: POST http://localhost:8080/api/tasks/{{task_id}}/comments (json: {{"agent": "your_name", "content": "message"}})
-- Create action items for questions: POST http://localhost:8080/api/tasks/{{task_id}}/action-items (json: {{"agent": "your_name", "content": "question", "item_type": "question"}})
-- Move to Review when done: POST http://localhost:8080/api/tasks/{{task_id}}/move?status=Review&agent={{your_name}}&reason=...
-- Use stop-work API when finished: POST http://localhost:8080/api/tasks/{{task_id}}/stop-work
+- Use start-work API when beginning: POST {TASKBOARD_BASE_URL}/api/tasks/{{task_id}}/start-work?agent={{your_name}}
+- Post updates as comments: POST {TASKBOARD_BASE_URL}/api/tasks/{{task_id}}/comments (json: {{"agent": "your_name", "content": "message"}})
+- Create action items for questions: POST {TASKBOARD_BASE_URL}/api/tasks/{{task_id}}/action-items (json: {{"agent": "your_name", "content": "question", "item_type": "question"}})
+- Move to Review when done: POST {TASKBOARD_BASE_URL}/api/tasks/{{task_id}}/move?status=Review&agent={{your_name}}&reason=...
+- Use stop-work API when finished: POST {TASKBOARD_BASE_URL}/api/tasks/{{task_id}}/stop-work
 
 REPORT FORMAT:
 When complete, post a comment with your findings using this format:
@@ -526,11 +527,11 @@ async def spawn_agent_session(task_id: int, task_title: str, task_description: s
 ---
 
 ## Instructions
-1. Call start-work API: POST http://localhost:8080/api/tasks/{task_id}/start-work?agent={agent_name}
+1. Call start-work API: POST {TASKBOARD_BASE_URL}/api/tasks/{task_id}/start-work?agent={agent_name}
    - This auto-moves the card to "In Progress" if needed
 2. Analyze the task thoroughly
 3. Post your findings as a comment on the task
-4. When done, call stop-work with outcome: POST http://localhost:8080/api/tasks/{task_id}/stop-work?agent={agent_name}&outcome=review&reason=<summary>
+4. When done, call stop-work with outcome: POST {TASKBOARD_BASE_URL}/api/tasks/{task_id}/stop-work?agent={agent_name}&outcome=review&reason=<summary>
    - Use outcome=review when work is complete (auto-moves to Review)
    - Use outcome=blocked&reason=<why> if you need input (auto-moves to Blocked)
 
@@ -577,7 +578,7 @@ Begin now.
                 
                 async with httpx.AsyncClient(timeout=5.0) as comment_client:
                     await comment_client.post(
-                        f"http://localhost:8080/api/tasks/{task_id}/comments",
+                        f"{TASKBOARD_BASE_URL}/api/tasks/{task_id}/comments",
                         json={
                             "agent": "System",
                             "content": f"🤖 **{agent_name}** agent spawned automatically.\n\nSession: `{session_key or 'unknown'}`\nRun ID: `{run_id}`\n\n💬 *Reply to this task and the agent will respond.*"
@@ -791,13 +792,21 @@ class Task(BaseModel):
 
 app = FastAPI(title="RIZQ Task Board", version="1.2.0")
 
-# Restrict CORS to localhost origins only
+# Build CORS allowed origins - always include localhost + configured base URL
 ALLOWED_ORIGINS = [
-    "http://localhost:8080",
+    "{TASKBOARD_BASE_URL}",
     "http://127.0.0.1:8080",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
 ]
+# Add the configured base URL if it's different
+if TASKBOARD_BASE_URL not in ALLOWED_ORIGINS:
+    ALLOWED_ORIGINS.append(TASKBOARD_BASE_URL)
+    # Also add with different protocol if https
+    if TASKBOARD_BASE_URL.startswith("https://"):
+        http_variant = TASKBOARD_BASE_URL.replace("https://", "http://")
+        if http_variant not in ALLOWED_ORIGINS:
+            ALLOWED_ORIGINS.append(http_variant)
 
 app.add_middleware(
     CORSMiddleware,
