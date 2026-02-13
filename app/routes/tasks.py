@@ -17,6 +17,7 @@ from app.websocket import manager
 from app.openclaw import (
     spawn_agent_session, send_to_agent_session,
     get_task_session, set_task_session,
+    is_session_alive, stop_agent_session,
 )
 
 router = APIRouter()
@@ -130,6 +131,28 @@ async def update_task(task_id: int, updates: TaskUpdate):
             log_activity(task_id, "updated", updates.agent or current["agent"], "; ".join(changes))
         row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
         result = dict(row)
+
+    # Auto-stop agent when task is moved to Done via PATCH
+    if updates.status == "Done" and current.get("status") != "Done":
+        session_key = get_task_session(task_id)
+        if session_key:
+            print(f"🛑 Auto-stopping agent session {session_key} for task #{task_id} (PATCH to Done)")
+            await stop_agent_session(session_key)
+            set_task_session(task_id, None)
+            now = datetime.now().isoformat()
+            with get_db() as conn:
+                conn.execute(
+                    "UPDATE tasks SET working_agent = NULL, agent_session_key = NULL, updated_at = ? WHERE id = ?",
+                    (now, task_id)
+                )
+                conn.commit()
+            await manager.broadcast({"type": "work_stopped", "task_id": task_id, "agent": current.get("working_agent")})
+            print(f"🧹 Cleared agent session for task #{task_id} (PATCH)")
+            # Refresh result after clearing
+            with get_db() as conn:
+                row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+                result = dict(row)
+
     await manager.broadcast({"type": "task_updated", "task": result})
     return result
 
@@ -371,13 +394,45 @@ async def move_task(task_id: int, status: str = None, agent: str = None, reason:
         await manager.broadcast({"type": "work_stopped", "task_id": task_id, "agent": old_working})
         session_key = get_task_session(task_id)
         if session_key:
-            await send_to_agent_session(session_key,
-                f"\u2705 **Task #{task_id} marked as Done by User.**\n\nYour work is complete. This session will now end. Thank you!")
+            # Auto-stop the agent session
+            print(f"🛑 Auto-stopping agent session {session_key} for task #{task_id} (moved to Done)")
+            await stop_agent_session(session_key)
             set_task_session(task_id, None)
             session_cleared = True
-            print(f"\U0001f9f9 Cleared agent session for task #{task_id}")
+            print(f"🧹 Cleared agent session for task #{task_id}")
 
     return {"status": "moved", "new_status": status, "action_item_created": action_item is not None, "session_cleared": session_cleared}
+
+
+@router.get("/api/tasks/{task_id}/agent-status")
+async def get_agent_status(task_id: int):
+    """Check if the agent session for a task is still alive."""
+    with get_db() as conn:
+        row = conn.execute("SELECT agent_session_key, working_agent FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Task not found")
+
+    session_key = row["agent_session_key"]
+    working_agent = row["working_agent"]
+
+    if not session_key:
+        return {"alive": False, "session_key": None, "working_agent": working_agent}
+
+    alive = await is_session_alive(session_key)
+    if not alive:
+        # Session is dead — clear stale data
+        now = datetime.now().isoformat()
+        with get_db() as conn:
+            conn.execute(
+                "UPDATE tasks SET agent_session_key = NULL, working_agent = NULL, updated_at = ? WHERE id = ?",
+                (now, task_id)
+            )
+            conn.commit()
+        print(f"🧹 agent-status: Cleared dead session {session_key} for task #{task_id}")
+        await manager.broadcast({"type": "work_stopped", "task_id": task_id, "agent": working_agent})
+        return {"alive": False, "session_key": None, "working_agent": None}
+
+    return {"alive": True, "session_key": session_key, "working_agent": working_agent}
 
 
 @router.get("/api/activity")

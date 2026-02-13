@@ -224,6 +224,74 @@ ALLOWED URLs (localhost only):
 DO NOT navigate to any external URLs. Your browser access is strictly for reviewing the local app."""
 }
 
+async def is_session_alive(session_key: str) -> bool:
+    """Check if an OpenClaw session is still active via sessions_list."""
+    if not OPENCLAW_ENABLED or not session_key:
+        return False
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            payload = {
+                "tool": "sessions_list",
+                "args": {}
+            }
+            headers = {
+                "Authorization": f"Bearer {OPENCLAW_TOKEN}",
+                "Content-Type": "application/json"
+            }
+            response = await client.post(
+                f"{OPENCLAW_GATEWAY_URL}/tools/invoke",
+                json=payload,
+                headers=headers
+            )
+            result = response.json() if response.status_code == 200 else None
+            if result and result.get("ok"):
+                sessions = result.get("result", [])
+                if isinstance(sessions, dict):
+                    sessions = sessions.get("sessions", [])
+                for s in sessions:
+                    key = s.get("sessionKey") or s.get("key") or s.get("id", "")
+                    if key == session_key:
+                        status = s.get("status", "").lower()
+                        return status not in ("stopped", "dead", "terminated", "error")
+            return False
+    except Exception as e:
+        print(f"⚠️  is_session_alive check failed: {e}")
+        return False
+
+
+async def stop_agent_session(session_key: str) -> bool:
+    """Stop an OpenClaw agent session via sessions_stop."""
+    if not OPENCLAW_ENABLED or not session_key:
+        return False
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            payload = {
+                "tool": "sessions_stop",
+                "args": {
+                    "sessionKey": session_key
+                }
+            }
+            headers = {
+                "Authorization": f"Bearer {OPENCLAW_TOKEN}",
+                "Content-Type": "application/json"
+            }
+            response = await client.post(
+                f"{OPENCLAW_GATEWAY_URL}/tools/invoke",
+                json=payload,
+                headers=headers
+            )
+            result = response.json() if response.status_code == 200 else None
+            if result and result.get("ok"):
+                print(f"✅ Stopped session {session_key}")
+                return True
+            else:
+                print(f"❌ Failed to stop session {session_key}: {response.text}")
+                return False
+    except Exception as e:
+        print(f"❌ Failed to stop agent session: {e}")
+        return False
+
+
 _spawning_tasks = set()
 
 
@@ -247,6 +315,17 @@ async def _do_spawn_agent_session(task_id: int, task_title: str, task_descriptio
     if not OPENCLAW_ENABLED:
         print(f"\u26a0\ufe0f  SPAWN-AGENT SKIPPED: OpenClaw not enabled (OPENCLAW_TOKEN not set)")
         return None
+
+    # Guard against double-spawn: check if session already exists and is alive
+    existing_key = get_task_session(task_id)
+    if existing_key:
+        alive = await is_session_alive(existing_key)
+        if alive:
+            print(f"ℹ️  SPAWN-AGENT SKIPPED: Task #{task_id} already has live session {existing_key}")
+            return None
+        else:
+            print(f"🧹 SPAWN-AGENT: Clearing dead session {existing_key} for task #{task_id}")
+            set_task_session(task_id, None)
 
     agent_id = AGENT_TO_OPENCLAW_ID.get(agent_name)
     if not agent_id:

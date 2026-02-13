@@ -3021,6 +3021,10 @@
                                 <label>Due Date</label>
                                 <input type="date" id="taskDueDate">
                             </div>
+                            <div class="form-group">
+                                <label>Project</label>
+                                <select id="taskProject"></select>
+                            </div>
                         </div>
                         
                         <div id="sourceInfo" style="display:none; margin-top: 0.75rem; padding: 0.5rem; background: var(--bg-dark); border-radius: 6px; font-size: 0.75rem;">
@@ -3271,6 +3275,15 @@
             config.agents.forEach(a => {
                 agentSelect.innerHTML += `<option value="${a}">${getAgentIcon(a)} ${a}</option>`;
             });
+
+            // Populate project select in task form
+            const taskProjectSelect = document.getElementById('taskProject');
+            if (taskProjectSelect && config.projects) {
+                taskProjectSelect.innerHTML = '';
+                config.projects.forEach(p => {
+                    taskProjectSelect.innerHTML += `<option value="${p.id}">${escapeHtml(p.name)}</option>`;
+                });
+            }
 
             // Populate project switcher
             populateProjectSwitcher();
@@ -3601,7 +3614,8 @@
             document.getElementById('taskPriority').value = 'Medium';
             document.getElementById('taskAgent').value = 'Unassigned';
             document.getElementById('taskDueDate').value = '';
-            
+            document.getElementById('taskProject').value = currentProjectId !== 'all' ? currentProjectId : '1';
+
             // Hide elements not relevant for new tasks
             document.getElementById('headerDeleteBtn').style.display = 'none';
             document.getElementById('theaterBtn').style.display = 'none';
@@ -3636,6 +3650,7 @@
             document.getElementById('taskPriority').value = task.priority;
             document.getElementById('taskAgent').value = task.agent;
             document.getElementById('taskDueDate').value = task.due_date || '';
+            document.getElementById('taskProject').value = task.project_id || '1';
             document.getElementById('headerDeleteBtn').style.display = '';
             document.getElementById('theaterBtn').style.display = '';
             document.getElementById('chatSection').style.display = 'block';
@@ -3665,7 +3680,29 @@
             
             await loadAndRenderComments(taskId);
             await loadAndRenderActionItems(taskId);
-            
+
+            // Check agent session liveness
+            try {
+                const agentStatus = await fetch(`${API}/api/tasks/${taskId}/agent-status`).then(r => r.json());
+                if (agentStatus.alive) {
+                    updateAgentToggleButton(true, agentStatus.working_agent);
+                    if (agentStatus.working_agent) {
+                        showChatWorkingIndicator(agentStatus.working_agent);
+                    }
+                } else {
+                    updateAgentToggleButton(false, null);
+                    hideChatWorkingIndicator();
+                    // Update local task data if session was cleared
+                    const localTask = tasks.find(t => t.id === taskId);
+                    if (localTask && !agentStatus.alive && !agentStatus.working_agent) {
+                        localTask.working_agent = null;
+                        localTask.agent_session_key = null;
+                    }
+                }
+            } catch (e) {
+                console.warn('Failed to check agent status:', e);
+            }
+
             // Re-attach paste handler to ensure it works in modal context
             const chatInput = document.getElementById('chatInput');
             if (chatInput) {
@@ -4070,6 +4107,7 @@
                 priority: document.getElementById('taskPriority').value,
                 agent: document.getElementById('taskAgent').value,
                 due_date: document.getElementById('taskDueDate').value || null,
+                project_id: parseInt(document.getElementById('taskProject').value) || 1,
             };
             
             // Show spinner
@@ -4157,7 +4195,9 @@
             const slug = task.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+$/, '').slice(0, 50);
             a.href = url;
             a.download = `task-${task.id}-${slug}.md`;
+            document.body.appendChild(a);
             a.click();
+            document.body.removeChild(a);
             URL.revokeObjectURL(url);
         }
 
