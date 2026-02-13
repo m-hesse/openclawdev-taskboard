@@ -221,10 +221,13 @@ You previously worked on this task and moved it to Review. User has a follow-up 
 ## Your Role:
 {system_prompt}
 
+## API Base URL (MANDATORY — do NOT use localhost or 127.0.0.1)
+All Task Board API calls MUST use this base URL: {TASKBOARD_BASE_URL}
+
 ## Instructions:
 1. Call start-work API: POST {TASKBOARD_BASE_URL}/api/tasks/{task_id}/start-work?agent={agent_name}
 2. Read the context and User's question
-3. Respond helpfully by posting a comment: POST {TASKBOARD_BASE_URL}/api/tasks/{task_id}/comments
+3. Respond helpfully by posting a comment: POST {TASKBOARD_BASE_URL}/api/tasks/{task_id}/comments (json: {{"agent": "{agent_name}", "content": "your message"}})
 4. Keep your response focused on what User asked
 5. Call stop-work API: POST {TASKBOARD_BASE_URL}/api/tasks/{task_id}/stop-work?agent={agent_name}
    - Add &outcome=review&reason=<summary> if work is complete
@@ -255,7 +258,8 @@ Respond now.
             )
             result = response.json() if response.status_code == 200 else None
             if result and result.get("ok"):
-                spawn_info = result.get("result", {})
+                raw_result = result.get("result", {})
+                spawn_info = raw_result.get("details", raw_result)
                 session_key = spawn_info.get("childSessionKey", None)
                 if session_key:
                     set_task_session(task_id, session_key)
@@ -348,7 +352,8 @@ Respond now with your assessment.
             )
             result = response.json() if response.status_code == 200 else None
             if result and result.get("ok"):
-                spawn_info = result.get("result", {})
+                raw_result = result.get("result", {})
+                spawn_info = raw_result.get("details", raw_result)
                 session_key = spawn_info.get("childSessionKey", "unknown")
                 
                 # Post system comment about the spawn
@@ -548,11 +553,15 @@ async def _do_spawn_agent_session(task_id: int, task_title: str, task_descriptio
 
 ---
 
+## API Base URL (MANDATORY — do NOT use localhost or 127.0.0.1)
+All Task Board API calls MUST use this base URL: {TASKBOARD_BASE_URL}
+Do NOT use localhost, 127.0.0.1, or any other address. The task board is ONLY reachable at {TASKBOARD_BASE_URL}.
+
 ## Instructions
 1. Call start-work API: POST {TASKBOARD_BASE_URL}/api/tasks/{task_id}/start-work?agent={agent_name}
    - This auto-moves the card to "In Progress" if needed
 2. Analyze the task thoroughly
-3. Post your findings as a comment on the task
+3. Post your findings as a comment: POST {TASKBOARD_BASE_URL}/api/tasks/{task_id}/comments (json: {{"agent": "{agent_name}", "content": "your message"}})
 4. When done, call stop-work with outcome: POST {TASKBOARD_BASE_URL}/api/tasks/{task_id}/stop-work?agent={agent_name}&outcome=review&reason=<summary>
    - Use outcome=review when work is complete (auto-moves to Review)
    - Use outcome=blocked&reason=<why> if you need input (auto-moves to Blocked)
@@ -597,7 +606,9 @@ Begin now.
             print(f"📥 SPAWN-AGENT: Response body: {result}")
 
             if result and result.get("ok"):
-                spawn_info = result.get("result", {})
+                raw_result = result.get("result", {})
+                # OpenClaw nests spawn info under "details"
+                spawn_info = raw_result.get("details", raw_result)
                 run_id = spawn_info.get("runId", "unknown")
                 session_key = spawn_info.get("childSessionKey", None)
 
@@ -771,7 +782,8 @@ def init_db():
 @contextmanager
 def get_db():
     """Database connection context manager."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
+    conn.execute("PRAGMA journal_mode=WAL")
     conn.row_factory = sqlite3.Row
     try:
         yield conn
@@ -1330,18 +1342,18 @@ async def stop_work(task_id: int, agent: str = None, outcome: str = None, reason
         else:
             print(f"💾 STOP-WORK: Clearing working_agent (no status change)")
 
-        # Update task
+        # Update task (clear working_agent AND session key so next start spawns fresh)
         if new_status:
-            print(f"💾 STOP-WORK: Updating DB - working_agent=NULL, status={new_status}")
+            print(f"💾 STOP-WORK: Updating DB - working_agent=NULL, agent_session_key=NULL, status={new_status}")
             conn.execute(
-                "UPDATE tasks SET working_agent = NULL, status = ?, updated_at = ? WHERE id = ?",
+                "UPDATE tasks SET working_agent = NULL, agent_session_key = NULL, status = ?, updated_at = ? WHERE id = ?",
                 (new_status, now, task_id)
             )
             log_activity(task_id, "status_change", agent or "Agent", f"Auto-moved to {new_status} (agent stopped work)")
         else:
-            print(f"💾 STOP-WORK: Updating DB - working_agent=NULL (status unchanged)")
+            print(f"💾 STOP-WORK: Updating DB - working_agent=NULL, agent_session_key=NULL (status unchanged)")
             conn.execute(
-                "UPDATE tasks SET working_agent = NULL, updated_at = ? WHERE id = ?",
+                "UPDATE tasks SET working_agent = NULL, agent_session_key = NULL, updated_at = ? WHERE id = ?",
                 (now, task_id)
             )
 
@@ -1448,21 +1460,12 @@ async def move_task(task_id: int, status: str = None, agent: str = None, reason:
     if action_item:
         await manager.broadcast({"type": "action_item_added", "task_id": task_id, "item": action_item})
 
-    # AUTO-SPAWN: When moving to In Progress, spawn the assigned agent's session
+    # AUTO-SPAWN is handled by start_work() to avoid duplicate spawns
+    # move_task only logs the intent; the UI calls start-work separately
     if status == "In Progress" and old_status != "In Progress":
         assigned_agent = result.get("agent", "Unassigned")
         if assigned_agent in AGENT_TO_OPENCLAW_ID and assigned_agent != "User":
-            existing_session = get_task_session(task_id)
-            if not existing_session:
-                print(f"🚀 MOVE-TASK: Auto-spawning {assigned_agent} for task #{task_id}")
-                await spawn_agent_session(
-                    task_id=task_id,
-                    task_title=result["title"],
-                    task_description=result.get("description", ""),
-                    agent_name=assigned_agent
-                )
-            else:
-                print(f"⏩ MOVE-TASK: Session already exists for task #{task_id}: {existing_session}")
+            print(f"ℹ️ MOVE-TASK: Task #{task_id} moved to In Progress — spawn delegated to start_work()")
 
     # CLEANUP: When moving to Done, clear the agent session AND working indicator
     session_cleared = False
