@@ -33,7 +33,7 @@ VALID_STATUSES = ["Backlog", "Todo", "In Progress", "Review", "Done", "Blocked"]
 VALID_PRIORITIES = ["Critical", "High", "Medium", "Low"]
 
 # Legacy list used by /api/config (kept as-is from original)
-STATUSES = ["Backlog", "In Progress", "Review", "Done", "Blocked"]
+STATUSES = ["Backlog", "Todo", "In Progress", "Review", "Done", "Blocked"]
 PRIORITIES = ["Critical", "High", "Medium", "Low"]
 
 # =============================================================================
