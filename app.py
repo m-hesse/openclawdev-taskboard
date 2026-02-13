@@ -41,26 +41,100 @@ HUMAN_NAME = os.getenv("HUMAN_NAME", "User")
 HUMAN_SUPERVISOR_LABEL = os.getenv("HUMAN_SUPERVISOR_LABEL", "User")
 BOARD_TITLE = os.getenv("BOARD_TITLE", "Task Board")
 
-AGENTS = [MAIN_AGENT_NAME, "Architect", "Security Auditor", "Code Reviewer", "UX Manager", "User", "Unassigned"]
 STATUSES = ["Backlog", "In Progress", "Review", "Done", "Blocked"]
 PRIORITIES = ["Critical", "High", "Medium", "Low"]
 
-# Map task board agent names to OpenClaw agent IDs
-# Customize these to match your OpenClaw agent configuration
-AGENT_TO_OPENCLAW_ID = {
-    MAIN_AGENT_NAME: "main",  # Main agent (handles command bar chat)
-    "Architect": "architect",
-    "Security Auditor": "security-auditor",
-    "Code Reviewer": "code-reviewer",
-    "UX Manager": "ux-manager",
+# Default agent metadata (fallback when OpenClaw is unreachable)
+AGENT_DEFAULTS = {
+    "main": {"icon": "🤖", "color": "#6366f1", "description": "Main coordinator, handles command bar chat"},
+    "architect": {"icon": "🏛️", "color": "#8b5cf6", "description": "System design, patterns, scalability"},
+    "security-auditor": {"icon": "🔒", "color": "#ef4444", "description": "Compliance, vulnerability detection"},
+    "code-reviewer": {"icon": "📋", "color": "#14b8a6", "description": "Code quality, best practices"},
+    "ux-manager": {"icon": "🎨", "color": "#ec4899", "description": "User experience, flows, accessibility"},
 }
 
-# Alias for backward compatibility
-AGENT_TO_OPENCLAW_ID = AGENT_TO_OPENCLAW_ID
+# Auto-assigned colors for unknown agents
+_AGENT_COLORS = ["#f59e0b", "#06b6d4", "#84cc16", "#a855f7", "#f43f5e", "#64748b"]
 
-# Build mention regex dynamically from agent names (including main agent now)
-MENTIONABLE_AGENTS = list(AGENT_TO_OPENCLAW_ID.keys())
-MENTION_PATTERN = re.compile(r'@(' + '|'.join(re.escape(a) for a in MENTIONABLE_AGENTS) + r')', re.IGNORECASE)
+# These get populated at startup from OpenClaw (or fallback to defaults)
+AGENTS: List[str] = []
+AGENT_TO_OPENCLAW_ID: dict = {}
+AGENT_META: dict = {}  # name -> {id, icon, color, description}
+MENTIONABLE_AGENTS: List[str] = []
+MENTION_PATTERN = None
+
+
+def _build_fallback_agents():
+    """Build agent lists from hardcoded defaults (when OpenClaw is unreachable)."""
+    global AGENTS, AGENT_TO_OPENCLAW_ID, AGENT_META, MENTIONABLE_AGENTS, MENTION_PATTERN
+    AGENT_TO_OPENCLAW_ID = {
+        MAIN_AGENT_NAME: "main",
+        "Architect": "architect",
+        "Security Auditor": "security-auditor",
+        "Code Reviewer": "code-reviewer",
+        "UX Manager": "ux-manager",
+    }
+    AGENTS = list(AGENT_TO_OPENCLAW_ID.keys()) + ["User", "Unassigned"]
+    AGENT_META = {}
+    for name, agent_id in AGENT_TO_OPENCLAW_ID.items():
+        defaults = AGENT_DEFAULTS.get(agent_id, {})
+        if agent_id == "main":
+            AGENT_META[name] = {"id": agent_id, "icon": MAIN_AGENT_EMOJI, "color": defaults.get("color", "#6366f1"), "description": defaults.get("description", "")}
+        else:
+            AGENT_META[name] = {"id": agent_id, "icon": defaults.get("icon", "○"), "color": defaults.get("color", "#64748b"), "description": defaults.get("description", "")}
+    AGENT_META["User"] = {"id": "user", "icon": "👤", "color": "#22c55e", "description": "Human supervisor"}
+    AGENT_META["Unassigned"] = {"id": "unassigned", "icon": "○", "color": "#64748b", "description": "Not yet assigned"}
+    _rebuild_mention_pattern()
+    print(f"⚙️ AGENTS (fallback): {AGENTS}")
+
+
+def _populate_agents_from_openclaw(agents_data: list):
+    """Build agent lists from OpenClaw API response."""
+    global AGENTS, AGENT_TO_OPENCLAW_ID, AGENT_META, MENTIONABLE_AGENTS, MENTION_PATTERN
+    AGENT_TO_OPENCLAW_ID = {}
+    AGENT_META = {}
+    color_idx = 0
+
+    for agent in agents_data:
+        agent_id = agent["id"]
+        agent_name = agent["name"]
+        defaults = AGENT_DEFAULTS.get(agent_id, {})
+
+        if agent_id == "main":
+            # Use env-configured name/emoji for main agent
+            agent_name = MAIN_AGENT_NAME if MAIN_AGENT_NAME != "Jarvis" else agent["name"]
+            icon = MAIN_AGENT_EMOJI
+        else:
+            icon = defaults.get("icon", "🔧")
+
+        color = defaults.get("color")
+        if not color:
+            color = _AGENT_COLORS[color_idx % len(_AGENT_COLORS)]
+            color_idx += 1
+
+        description = defaults.get("description", f"{agent_name} agent")
+
+        AGENT_TO_OPENCLAW_ID[agent_name] = agent_id
+        AGENT_META[agent_name] = {"id": agent_id, "icon": icon, "color": color, "description": description}
+
+    AGENTS = list(AGENT_TO_OPENCLAW_ID.keys()) + ["User", "Unassigned"]
+    AGENT_META["User"] = {"id": "user", "icon": "👤", "color": "#22c55e", "description": "Human supervisor"}
+    AGENT_META["Unassigned"] = {"id": "unassigned", "icon": "○", "color": "#64748b", "description": "Not yet assigned"}
+    _rebuild_mention_pattern()
+    print(f"✅ AGENTS (from OpenClaw): {AGENTS}")
+
+
+def _rebuild_mention_pattern():
+    global MENTIONABLE_AGENTS, MENTION_PATTERN
+    MENTIONABLE_AGENTS = list(AGENT_TO_OPENCLAW_ID.keys())
+    if MENTIONABLE_AGENTS:
+        MENTION_PATTERN = re.compile(r'@(' + '|'.join(re.escape(a) for a in MENTIONABLE_AGENTS) + r')', re.IGNORECASE)
+    else:
+        MENTION_PATTERN = re.compile(r'(?!)')  # never matches
+
+
+# Initialize with fallback; will be replaced at startup if OpenClaw is reachable
+_build_fallback_agents()
 
 # Security: Load secrets from environment variables
 OPENCLAW_GATEWAY_URL = os.getenv("OPENCLAW_GATEWAY_URL", "http://host.docker.internal:18789")
@@ -1026,8 +1100,30 @@ app.add_middleware(RequestLoggingMiddleware)
 
 # Initialize DB on startup
 @app.on_event("startup")
-def startup():
+async def startup():
     init_db()
+    # Fetch agents from OpenClaw
+    if OPENCLAW_ENABLED:
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(
+                    f"{OPENCLAW_GATEWAY_URL}/tools/invoke",
+                    json={"tool": "agents_list", "args": {}},
+                    headers={"Authorization": f"Bearer {OPENCLAW_TOKEN}", "Content-Type": "application/json"}
+                )
+                result = response.json() if response.status_code == 200 else None
+                if result and result.get("ok"):
+                    raw_result = result.get("result", {})
+                    details = raw_result.get("details", raw_result)
+                    agents_data = details.get("agents", [])
+                    if agents_data:
+                        _populate_agents_from_openclaw(agents_data)
+                    else:
+                        print("⚠️ OpenClaw returned empty agents list, using fallback")
+                else:
+                    print(f"⚠️ OpenClaw agents_list failed: {response.status_code}, using fallback")
+        except Exception as e:
+            print(f"⚠️ Could not fetch agents from OpenClaw: {e}, using fallback")
 
 # Serve static files
 STATIC_PATH.mkdir(exist_ok=True)
@@ -1070,6 +1166,7 @@ def get_config():
     """Get board configuration including branding."""
     return {
         "agents": AGENTS,
+        "agentMeta": AGENT_META,
         "statuses": STATUSES,
         "priorities": PRIORITIES,
         "branding": {

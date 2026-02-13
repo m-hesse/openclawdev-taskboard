@@ -1161,15 +1161,7 @@
         .tag.priority-Medium { background: var(--medium); color: black; }
         .tag.priority-Low { background: var(--low); color: white; }
         
-        /* Agent colors */
-        .tag.agent-Jarvis { background: #6366f1; color: white; }
-        .tag.agent-Jarvis { background: #0ea5e9; color: white; }
-        .tag.agent-Architect { background: #8b5cf6; color: white; }
-        .tag.agent-Security-Auditor { background: #ef4444; color: white; }
-        .tag.agent-Code-Reviewer { background: #14b8a6; color: white; }
-        .tag.agent-UX-Manager { background: #ec4899; color: white; }
-        .tag.agent-User { background: #22c55e; color: white; }
-        .tag.agent-Unassigned { background: #64748b; color: white; }
+        /* Agent colors are injected dynamically from config.agentMeta */
         
         /* Notification bubble */
         .notification-bubble {
@@ -2860,16 +2852,9 @@
         let theaterMode = false;
         let detailsVisible = true;
         
-        // Agent icons mapping (main agent added dynamically from config)
-        window.AGENT_ICONS = {
-            'Architect': '🏛️',
-            'Security Auditor': '🔒',
-            'Code Reviewer': '📋',
-            'UX Manager': '🎨',
-            'User': '👤',
-            'Unassigned': '○'
-        };
-        
+        // Agent icons mapping (populated from config.agentMeta at startup)
+        window.AGENT_ICONS = {};
+
         function getAgentIcon(agent) {
             return window.AGENT_ICONS[agent] || '○';
         }
@@ -2957,14 +2942,32 @@
                 sessionSelector.options[0].textContent = `${mainAgent} (Main)`;
             }
             
-            // Update AGENT_ICONS with main agent (used by cards and legend)
-            if (window.AGENT_ICONS) {
+            // Populate AGENT_ICONS from agentMeta (dynamic from OpenClaw)
+            if (config.agentMeta) {
+                window.AGENT_ICONS = {};
+                window.AGENT_ICONS_MAP = {};
+                for (const [name, meta] of Object.entries(config.agentMeta)) {
+                    AGENT_ICONS[name] = meta.icon || '○';
+                    if (name !== 'User' && name !== 'Unassigned') {
+                        AGENT_ICONS_MAP[name] = meta.icon || '○';
+                    }
+                }
+                // Inject dynamic CSS for agent colors
+                let agentStyles = '';
+                for (const [name, meta] of Object.entries(config.agentMeta)) {
+                    const cssName = name.replace(/\s+/g, '-');
+                    agentStyles += `.tag.agent-${cssName} { background: ${meta.color || '#64748b'}; color: white; }\n`;
+                }
+                let styleEl = document.getElementById('dynamic-agent-styles');
+                if (!styleEl) {
+                    styleEl = document.createElement('style');
+                    styleEl.id = 'dynamic-agent-styles';
+                    document.head.appendChild(styleEl);
+                }
+                styleEl.textContent = agentStyles;
+            } else {
+                // Fallback: set main agent icon
                 AGENT_ICONS[mainAgent] = mainEmoji;
-            }
-            
-            // Update AGENT_ICONS_MAP with main agent (used by mention dropdown)
-            if (window.AGENT_ICONS_MAP) {
-                AGENT_ICONS_MAP[mainAgent] = mainEmoji;
             }
             
             // Store branding globally for use elsewhere
@@ -5543,12 +5546,11 @@
                 <section class="help-section">
                     <h3>🤖 Agents</h3>
                     <div class="agent-list">
-                        <div class="agent-item">${mainEmoji} <strong>${mainAgent}</strong> — Main coordinator, handles command bar chat</div>
-                        <div class="agent-item">🏛️ <strong>Architect</strong> — System design, patterns, scalability</div>
-                        <div class="agent-item">🔒 <strong>Security Auditor</strong> — SOC2, HIPAA, CIS compliance</div>
-                        <div class="agent-item">📋 <strong>Code Reviewer</strong> — Code quality, best practices</div>
-                        <div class="agent-item">🎨 <strong>UX Manager</strong> — User flows, UI consistency</div>
-                        <div class="agent-item">👤 <strong>User</strong> — Human supervisor (you!)</div>
+                        ${config.agentMeta ? config.agents.map(a => {
+                            const meta = config.agentMeta[a];
+                            if (!meta) return '';
+                            return `<div class="agent-item">${meta.icon} <strong>${a}</strong> — ${meta.description}</div>`;
+                        }).join('') : `<div class="agent-item">${mainEmoji} <strong>${mainAgent}</strong> — Main coordinator</div>`}
                     </div>
                 </section>
                 
@@ -5656,13 +5658,8 @@
             document.getElementById('helpModal').classList.remove('active');
         }
         
-        // Mention/Tag Agents (main agent added dynamically from config)
-        window.AGENT_ICONS_MAP = {
-            'Architect': '🏛️',
-            'Security Auditor': '🔒',
-            'Code Reviewer': '📋',
-            'UX Manager': '🎨'
-        };
+        // AGENT_ICONS_MAP is populated from config.agentMeta in applyBranding()
+        if (!window.AGENT_ICONS_MAP) window.AGENT_ICONS_MAP = {};
         
         function toggleMentionDropdown(event) {
             event.stopPropagation();
