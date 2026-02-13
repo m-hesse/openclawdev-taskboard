@@ -1,24 +1,69 @@
 """
 Database: connection manager, schema initialization, activity logging.
+
+Concurrency model:
+- SQLite WAL mode for concurrent reads
+- BEGIN IMMEDIATE for write transactions (serializes writes)
+- busy_timeout=30s to wait for locks instead of failing
+- All writes go through get_db_write() which acquires IMMEDIATE lock
+- Reads can use get_db() (no lock needed with WAL)
 """
 
+import logging
 import sqlite3
+import threading
 from contextlib import contextmanager
 from datetime import datetime
 
 from app.config import DB_PATH
 
+logger = logging.getLogger(__name__)
+
+# Global write lock to serialize all database writes at the application level.
+# This prevents SQLite BUSY errors when multiple async handlers try to write concurrently.
+_write_lock = threading.Lock()
+
 
 @contextmanager
 def get_db():
-    """Database connection context manager."""
-    conn = sqlite3.connect(DB_PATH, timeout=30)
+    """Read-only database connection. Use get_db_write() for writes."""
+    conn = sqlite3.connect(str(DB_PATH), timeout=30)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=30000")
     conn.row_factory = sqlite3.Row
     try:
         yield conn
     finally:
         conn.close()
+
+
+@contextmanager
+def get_db_write():
+    """
+    Write-safe database connection with serialization.
+
+    Acquires a thread lock + BEGIN IMMEDIATE to ensure:
+    1. Only one write transaction at a time (app-level lock)
+    2. SQLite write lock acquired immediately (not deferred)
+    3. Auto-commit on success, auto-rollback on exception
+    """
+    with _write_lock:
+        conn = sqlite3.connect(str(DB_PATH), timeout=30, isolation_level=None)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=30000")
+        conn.row_factory = sqlite3.Row
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            yield conn
+            conn.execute("COMMIT")
+        except Exception:
+            try:
+                conn.execute("ROLLBACK")
+            except Exception:
+                pass
+            raise
+        finally:
+            conn.close()
 
 
 def init_db():
@@ -80,7 +125,7 @@ def init_db():
         ]:
             try:
                 conn.execute(alter)
-            except:
+            except Exception:
                 pass
 
         conn.execute("""
@@ -95,7 +140,7 @@ def init_db():
         """)
         try:
             conn.execute("ALTER TABLE chat_messages ADD COLUMN session_key TEXT DEFAULT 'main'")
-        except:
+        except Exception:
             pass
 
         conn.execute("""
@@ -136,10 +181,10 @@ def init_db():
 
 
 def log_activity(task_id: int, action: str, agent: str = None, details: str = None):
-    """Log an activity."""
-    with get_db() as conn:
+    """Log an activity with full audit trail."""
+    with get_db_write() as conn:
         conn.execute(
             "INSERT INTO activity_log (task_id, action, agent, details, timestamp) VALUES (?, ?, ?, ?, ?)",
             (task_id, action, agent, details, datetime.now().isoformat())
         )
-        conn.commit()
+    logger.info(f"ACTIVITY: task={task_id} action={action} agent={agent} details={details}")

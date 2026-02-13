@@ -3,6 +3,7 @@ Chat: Jarvis history, chat, respond endpoints + legacy endpoints.
 """
 
 import json
+import logging
 import secrets
 from datetime import datetime
 from fastapi import APIRouter, Depends, Header, HTTPException
@@ -13,10 +14,11 @@ from app.config import (
     OPENCLAW_ENABLED, OPENCLAW_GATEWAY_URL, OPENCLAW_TOKEN,
     TASKBOARD_API_KEY, DATA_DIR,
 )
-from app.database import get_db
+from app.database import get_db, get_db_write
 from app.models import JarvisMessage, JarvisResponse
 from app.websocket import manager
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -82,10 +84,12 @@ async def chat_with_jarvis(msg: JarvisMessage):
             if att_type.startswith("image/") and att_data:
                 try:
                     if att_data.startswith("data:") and ";base64," in att_data:
-                        b64_content = att_data.split(",", 1)[1]
+                        header, b64_content = att_data.split(",", 1)
+                        mime_type = header.split(":")[1].split(";")[0]
+                        ext = mime_type.split("/")[1] if "/" in mime_type else "png"
                     else:
                         b64_content = att_data
-                    ext = att_type.split("/")[1].split(";")[0]
+                        ext = "png"
                     if ext not in ["png", "jpg", "jpeg", "gif", "webp"]:
                         ext = "png"
                     img_filename = f"{uuid.uuid4().hex[:8]}_{att_filename or 'image'}"
@@ -113,13 +117,14 @@ async def chat_with_jarvis(msg: JarvisMessage):
     session_key = msg.session or "main"
 
     attachments_json = json.dumps(msg.attachments) if msg.attachments else None
-    with get_db() as conn:
+    with get_db_write() as conn:
         cursor = conn.execute(
             "INSERT INTO chat_messages (session_key, role, content, attachments, created_at) VALUES (?, ?, ?, ?, ?)",
             (session_key, "user", msg.message, attachments_json, now)
         )
-        conn.commit()
         user_msg_id = cursor.lastrowid
+
+    logger.info(f"Chat message from user in session {session_key}")
 
     user_msg = {
         "id": user_msg_id, "session_key": session_key, "role": "user",
@@ -150,12 +155,11 @@ async def chat_with_jarvis(msg: JarvisMessage):
                     assistant_reply = json_module.dumps(assistant_reply) if isinstance(assistant_reply, (dict, list)) else str(assistant_reply)
 
                 if assistant_reply:
-                    with get_db() as conn:
+                    with get_db_write() as conn:
                         cursor = conn.execute(
                             "INSERT INTO chat_messages (session_key, role, content, attachments, created_at) VALUES (?, ?, ?, ?, ?)",
                             (session_key, "assistant", assistant_reply, None, now)
                         )
-                        conn.commit()
                         assistant_msg_id = cursor.lastrowid
 
                     jarvis_msg = {
@@ -180,13 +184,14 @@ async def jarvis_respond(msg: JarvisResponse, _: bool = Depends(verify_api_key))
     now = datetime.now().isoformat()
     session_key = msg.session or "main"
 
-    with get_db() as conn:
+    with get_db_write() as conn:
         cursor = conn.execute(
             "INSERT INTO chat_messages (session_key, role, content, attachments, created_at) VALUES (?, ?, ?, ?, ?)",
             (session_key, "assistant", msg.response, None, now)
         )
-        conn.commit()
         msg_id = cursor.lastrowid
+
+    logger.info(f"Jarvis response pushed to session {session_key}")
 
     jarvis_msg = {
         "id": msg_id, "session_key": session_key,

@@ -66,6 +66,43 @@ def _rebuild_mention_pattern():
         MENTION_PATTERN = re.compile(r'(?!)')  # never matches
 
 
+def _build_agents_from_env():
+    """Build agent lists from AGENTS env var. Format: 'agent_id:Display Name,agent_id2:Name2'"""
+    global AGENTS, AGENT_TO_OPENCLAW_ID, AGENT_META, MENTIONABLE_AGENTS, MENTION_PATTERN
+    AGENT_TO_OPENCLAW_ID = {}
+    AGENT_META = {}
+    color_idx = 0
+
+    for entry in AGENTS_ENV.split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        if ":" in entry:
+            agent_id, agent_name = entry.split(":", 1)
+            agent_id = agent_id.strip()
+            agent_name = agent_name.strip()
+        else:
+            agent_id = entry.strip()
+            agent_name = agent_id.replace("-", " ").title()
+
+        defaults = AGENT_DEFAULTS.get(agent_id, {})
+        AGENT_TO_OPENCLAW_ID[agent_name] = agent_id
+        if agent_id == "main":
+            icon = MAIN_AGENT_EMOJI
+        else:
+            icon = defaults.get("icon", "🔧")
+        color = defaults.get("color", _AGENT_COLORS[color_idx % len(_AGENT_COLORS)])
+        if agent_id not in AGENT_DEFAULTS:
+            color_idx += 1
+        AGENT_META[agent_name] = {"id": agent_id, "icon": icon, "color": color, "description": defaults.get("description", "")}
+
+    AGENTS = list(AGENT_TO_OPENCLAW_ID.keys()) + ["User", "Unassigned"]
+    AGENT_META["User"] = {"id": "user", "icon": "👤", "color": "#22c55e", "description": "Human supervisor"}
+    AGENT_META["Unassigned"] = {"id": "unassigned", "icon": "○", "color": "#64748b", "description": "Not yet assigned"}
+    _rebuild_mention_pattern()
+    print(f"⚙️ AGENTS (from ENV): {AGENTS}")
+
+
 def _build_fallback_agents():
     """Build agent lists from hardcoded defaults (when OpenClaw is unreachable)."""
     global AGENTS, AGENT_TO_OPENCLAW_ID, AGENT_META, MENTIONABLE_AGENTS, MENTION_PATTERN
@@ -138,6 +175,9 @@ OPENCLAW_TOKEN = os.getenv("OPENCLAW_TOKEN", "")
 TASKBOARD_API_KEY = os.getenv("TASKBOARD_API_KEY", "")
 TASKBOARD_BASE_URL = os.getenv("TASKBOARD_BASE_URL", "http://localhost:8080")
 OPENCLAW_ENABLED = bool(OPENCLAW_TOKEN)
+AGENT_AUTO_DETECT = os.getenv("AGENT_AUTO_DETECT", "true").lower() in ("true", "1", "yes")
+# Comma-separated list of agent_id:Display Name pairs, e.g. "main:Jarvis,architect:Architect,code-reviewer:Code Reviewer"
+AGENTS_ENV = os.getenv("AGENTS", "")
 
 # Project configuration
 PROJECT_NAME = os.getenv("PROJECT_NAME", "My Project")

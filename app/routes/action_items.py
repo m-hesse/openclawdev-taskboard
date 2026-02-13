@@ -2,13 +2,15 @@
 Action items: CRUD, resolve/unresolve, archive/unarchive.
 """
 
+import logging
 from datetime import datetime
 from fastapi import APIRouter, HTTPException
 
-from app.database import get_db
+from app.database import get_db, get_db_write
 from app.models import ActionItemCreate
 from app.websocket import manager
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -33,7 +35,7 @@ def get_action_items(task_id: int, resolved: bool = False, archived: bool = Fals
 async def add_action_item(task_id: int, item: ActionItemCreate):
     """Add an action item to a task."""
     now = datetime.now().isoformat()
-    with get_db() as conn:
+    with get_db_write() as conn:
         row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Task not found")
@@ -41,12 +43,12 @@ async def add_action_item(task_id: int, item: ActionItemCreate):
             "INSERT INTO action_items (task_id, comment_id, agent, content, item_type, created_at) VALUES (?, ?, ?, ?, ?, ?)",
             (task_id, item.comment_id, item.agent, item.content, item.item_type, now)
         )
-        conn.commit()
         result = {
             "id": cursor.lastrowid, "task_id": task_id, "comment_id": item.comment_id,
             "agent": item.agent, "content": item.content, "item_type": item.item_type,
             "resolved": 0, "created_at": now, "resolved_at": None
         }
+    logger.info(f"Action item added on task #{task_id} by {item.agent}: {item.content[:50]}")
     await manager.broadcast({"type": "action_item_added", "task_id": task_id, "item": result})
     return result
 
@@ -55,13 +57,13 @@ async def add_action_item(task_id: int, item: ActionItemCreate):
 async def resolve_action_item(item_id: int):
     """Resolve an action item."""
     now = datetime.now().isoformat()
-    with get_db() as conn:
+    with get_db_write() as conn:
         row = conn.execute("SELECT * FROM action_items WHERE id = ?", (item_id,)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Action item not found")
         conn.execute("UPDATE action_items SET resolved = 1, resolved_at = ? WHERE id = ?", (now, item_id))
-        conn.commit()
         task_id = row["task_id"]
+    logger.info(f"Action item #{item_id} resolved on task #{task_id}")
     await manager.broadcast({"type": "action_item_resolved", "task_id": task_id, "item_id": item_id})
     return {"success": True, "item_id": item_id}
 
@@ -69,13 +71,13 @@ async def resolve_action_item(item_id: int):
 @router.post("/api/action-items/{item_id}/unresolve")
 async def unresolve_action_item(item_id: int):
     """Unresolve an action item."""
-    with get_db() as conn:
+    with get_db_write() as conn:
         row = conn.execute("SELECT * FROM action_items WHERE id = ?", (item_id,)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Action item not found")
         conn.execute("UPDATE action_items SET resolved = 0, resolved_at = NULL WHERE id = ?", (item_id,))
-        conn.commit()
         task_id = row["task_id"]
+    logger.info(f"Action item #{item_id} unresolved on task #{task_id}")
     await manager.broadcast({"type": "action_item_unresolved", "task_id": task_id, "item_id": item_id})
     return {"success": True, "item_id": item_id}
 
@@ -83,13 +85,13 @@ async def unresolve_action_item(item_id: int):
 @router.post("/api/action-items/{item_id}/archive")
 async def archive_action_item(item_id: int):
     """Archive a resolved action item."""
-    with get_db() as conn:
+    with get_db_write() as conn:
         row = conn.execute("SELECT * FROM action_items WHERE id = ?", (item_id,)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Action item not found")
         conn.execute("UPDATE action_items SET archived = 1 WHERE id = ?", (item_id,))
-        conn.commit()
         task_id = row["task_id"]
+    logger.info(f"Action item #{item_id} archived on task #{task_id}")
     await manager.broadcast({"type": "action_item_archived", "task_id": task_id, "item_id": item_id})
     return {"success": True, "item_id": item_id}
 
@@ -97,13 +99,13 @@ async def archive_action_item(item_id: int):
 @router.post("/api/action-items/{item_id}/unarchive")
 async def unarchive_action_item(item_id: int):
     """Unarchive an action item."""
-    with get_db() as conn:
+    with get_db_write() as conn:
         row = conn.execute("SELECT * FROM action_items WHERE id = ?", (item_id,)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Action item not found")
         conn.execute("UPDATE action_items SET archived = 0 WHERE id = ?", (item_id,))
-        conn.commit()
         task_id = row["task_id"]
+    logger.info(f"Action item #{item_id} unarchived on task #{task_id}")
     await manager.broadcast({"type": "action_item_unarchived", "task_id": task_id, "item_id": item_id})
     return {"success": True, "item_id": item_id}
 
@@ -111,12 +113,12 @@ async def unarchive_action_item(item_id: int):
 @router.delete("/api/action-items/{item_id}")
 async def delete_action_item(item_id: int):
     """Delete an action item."""
-    with get_db() as conn:
+    with get_db_write() as conn:
         row = conn.execute("SELECT * FROM action_items WHERE id = ?", (item_id,)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Action item not found")
         task_id = row["task_id"]
         conn.execute("DELETE FROM action_items WHERE id = ?", (item_id,))
-        conn.commit()
+    logger.info(f"Action item #{item_id} deleted from task #{task_id}")
     await manager.broadcast({"type": "action_item_deleted", "task_id": task_id, "item_id": item_id})
     return {"success": True, "item_id": item_id}

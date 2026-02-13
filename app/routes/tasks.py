@@ -2,6 +2,7 @@
 Task CRUD, move, start-work, stop-work, agent tasks, config, activity.
 """
 
+import logging
 from typing import List
 from datetime import datetime
 from fastapi import APIRouter, HTTPException
@@ -11,7 +12,7 @@ from app.config import (
     STATUSES, PRIORITIES,
     MAIN_AGENT_NAME, MAIN_AGENT_EMOJI, HUMAN_NAME, HUMAN_SUPERVISOR_LABEL, BOARD_TITLE,
 )
-from app.database import get_db, log_activity
+from app.database import get_db, get_db_write, log_activity
 from app.models import TaskCreate, TaskUpdate, Task
 from app.websocket import manager
 from app.openclaw import (
@@ -20,6 +21,7 @@ from app.openclaw import (
     is_session_alive, stop_agent_session,
 )
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -80,19 +82,19 @@ async def create_task(task: TaskCreate):
     print(f"\U0001f4dd CREATE-TASK: {task.title} | Status: {task.status} | Agent: {task.agent} | Priority: {task.priority}")
     now = datetime.now().isoformat()
     try:
-        with get_db() as conn:
+        with get_db_write() as conn:
             print(f"\U0001f4be CREATE-TASK: Inserting into database")
             cursor = conn.execute(
                 """INSERT INTO tasks (title, description, status, priority, agent, due_date, created_at, updated_at, board, source_file, source_ref, project_id)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (task.title, task.description, task.status, task.priority, task.agent, task.due_date, now, now, task.board, task.source_file, task.source_ref, task.project_id)
             )
-            conn.commit()
             task_id = cursor.lastrowid
             print(f"\u2705 CREATE-TASK: Database insert successful - Task ID: {task_id}")
-            log_activity(task_id, "created", task.agent, f"Created: {task.title}")
             row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
             result = dict(row)
+        logger.info(f"Task #{task_id} created by {task.agent}: {task.title}")
+        log_activity(task_id, "created", task.agent, f"Created: {task.title}")
     except Exception as e:
         print(f"\u274c CREATE-TASK: Database error - {type(e).__name__}: {e}")
         import traceback
@@ -108,7 +110,7 @@ async def create_task(task: TaskCreate):
 @router.patch("/api/tasks/{task_id}", response_model=Task)
 async def update_task(task_id: int, updates: TaskUpdate):
     """Update a task."""
-    with get_db() as conn:
+    with get_db_write() as conn:
         row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Task not found")
@@ -122,36 +124,44 @@ async def update_task(task_id: int, updates: TaskUpdate):
                 update_fields.append(f"{field} = ?")
                 params.append(new_value)
                 changes.append(f"{field}: {current[field]} \u2192 {new_value}")
+
+        # If moving to Done, also clear working_agent/agent_session_key in same transaction
+        moving_to_done = updates.status == "Done" and current.get("status") != "Done"
+        if moving_to_done:
+            if "working_agent = ?" not in update_fields:
+                update_fields.append("working_agent = ?")
+                params.append(None)
+            if "agent_session_key = ?" not in update_fields:
+                update_fields.append("agent_session_key = ?")
+                params.append(None)
+
         if update_fields:
             update_fields.append("updated_at = ?")
             params.append(datetime.now().isoformat())
             params.append(task_id)
             conn.execute(f"UPDATE tasks SET {', '.join(update_fields)} WHERE id = ?", params)
-            conn.commit()
-            log_activity(task_id, "updated", updates.agent or current["agent"], "; ".join(changes))
+            logger.info(f"Task #{task_id} updated by {updates.agent or current['agent']}: {'; '.join(changes)}")
+
         row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
         result = dict(row)
 
+    if changes:
+        log_activity(task_id, "updated", updates.agent or current["agent"], "; ".join(changes))
+
     # Auto-stop agent when task is moved to Done via PATCH
-    if updates.status == "Done" and current.get("status") != "Done":
+    if moving_to_done:
         session_key = get_task_session(task_id)
         if session_key:
             print(f"🛑 Auto-stopping agent session {session_key} for task #{task_id} (PATCH to Done)")
             await stop_agent_session(session_key)
             set_task_session(task_id, None)
-            now = datetime.now().isoformat()
-            with get_db() as conn:
-                conn.execute(
-                    "UPDATE tasks SET working_agent = NULL, agent_session_key = NULL, updated_at = ? WHERE id = ?",
-                    (now, task_id)
-                )
-                conn.commit()
-            await manager.broadcast({"type": "work_stopped", "task_id": task_id, "agent": current.get("working_agent")})
-            print(f"🧹 Cleared agent session for task #{task_id} (PATCH)")
-            # Refresh result after clearing
-            with get_db() as conn:
-                row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
-                result = dict(row)
+            logger.info(f"Task #{task_id} moved to Done — cleared agent session {session_key}")
+        await manager.broadcast({"type": "work_stopped", "task_id": task_id, "agent": current.get("working_agent")})
+        print(f"🧹 Cleared agent session for task #{task_id} (PATCH)")
+        # Refresh result after clearing
+        with get_db() as conn:
+            row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+            result = dict(row)
 
     await manager.broadcast({"type": "task_updated", "task": result})
     return result
@@ -160,13 +170,13 @@ async def update_task(task_id: int, updates: TaskUpdate):
 @router.delete("/api/tasks/{task_id}")
 async def delete_task(task_id: int):
     """Delete a task."""
-    with get_db() as conn:
+    with get_db_write() as conn:
         row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Task not found")
         conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
-        conn.commit()
-        log_activity(task_id, "deleted", None, f"Deleted: {row['title']}")
+        logger.info(f"Task #{task_id} deleted: {row['title']}")
+    log_activity(task_id, "deleted", None, f"Deleted: {row['title']}")
     await manager.broadcast({"type": "task_deleted", "task_id": task_id})
     return {"status": "deleted", "id": task_id}
 
@@ -186,7 +196,7 @@ def get_agent_tasks(agent: str):
 async def start_work(task_id: int, agent: str):
     """Mark that an agent is actively working on a task. Auto-moves to In Progress."""
     print(f"\U0001f916 START-WORK: Task #{task_id} | Agent: {agent}")
-    with get_db() as conn:
+    with get_db_write() as conn:
         row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
         if not row:
             print(f"\u274c START-WORK FAILED: Task #{task_id} not found")
@@ -204,21 +214,19 @@ async def start_work(task_id: int, agent: str):
                 (agent, "In Progress", now, task_id)
             )
             moved = True
-            log_activity(task_id, "status_change", agent, f"Auto-moved from {current_status} to In Progress (agent started work)")
+            logger.info(f"Task #{task_id} status change: {current_status} -> In Progress by {agent} (start-work)")
         else:
             print(f"\U0001f4be START-WORK: Updating working_agent={agent} (status unchanged: {current_status})")
             conn.execute(
                 "UPDATE tasks SET working_agent = ?, updated_at = ? WHERE id = ?",
                 (agent, now, task_id)
             )
-        try:
-            conn.commit()
-            print(f"\u2705 START-WORK: Database updated successfully")
-        except Exception as e:
-            print(f"\u274c START-WORK: Database commit failed - {e}")
-            raise
+        print(f"\u2705 START-WORK: Database updated successfully")
         row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
         result = dict(row)
+
+    if moved:
+        log_activity(task_id, "status_change", agent, f"Auto-moved from {current_status} to In Progress (agent started work)")
 
     print(f"\U0001f4e1 START-WORK: Broadcasting work_started event")
     await manager.broadcast({"type": "work_started", "task_id": task_id, "agent": agent})
@@ -247,7 +255,7 @@ async def start_work(task_id: int, agent: str):
 async def stop_work(task_id: int, agent: str = None, outcome: str = None, reason: str = None):
     """Mark that an agent has stopped working on a task."""
     print(f"\U0001f6d1 STOP-WORK: Task #{task_id} | Agent: {agent} | Outcome: {outcome} | Reason: {reason}")
-    with get_db() as conn:
+    with get_db_write() as conn:
         row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
         if not row:
             print(f"\u274c STOP-WORK FAILED: Task #{task_id} not found")
@@ -291,21 +299,19 @@ async def stop_work(task_id: int, agent: str = None, outcome: str = None, reason
                 "UPDATE tasks SET working_agent = NULL, agent_session_key = NULL, status = ?, updated_at = ? WHERE id = ?",
                 (new_status, now, task_id)
             )
-            log_activity(task_id, "status_change", agent or "Agent", f"Auto-moved to {new_status} (agent stopped work)")
+            logger.info(f"Task #{task_id} status change: {current_status} -> {new_status} by {agent or 'Agent'} (stop-work)")
         else:
             print(f"\U0001f4be STOP-WORK: Updating DB - working_agent=NULL, agent_session_key=NULL (status unchanged)")
             conn.execute(
                 "UPDATE tasks SET working_agent = NULL, agent_session_key = NULL, updated_at = ? WHERE id = ?",
                 (now, task_id)
             )
-        try:
-            conn.commit()
-            print(f"\u2705 STOP-WORK: Database updated successfully")
-        except Exception as e:
-            print(f"\u274c STOP-WORK: Database commit failed - {e}")
-            raise
+        print(f"\u2705 STOP-WORK: Database updated successfully")
         row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
         result = dict(row)
+
+    if new_status:
+        log_activity(task_id, "status_change", agent or "Agent", f"Auto-moved to {new_status} (agent stopped work)")
 
     print(f"\U0001f4e1 STOP-WORK: Broadcasting work_stopped event")
     await manager.broadcast({"type": "work_stopped", "task_id": task_id, "agent": agent or current_working})
@@ -325,7 +331,7 @@ async def move_task(task_id: int, status: str = None, agent: str = None, reason:
     """Quick move task to a new status with workflow rules."""
     print(f"\U0001f4cb MOVE-TASK: Task #{task_id} \u2192 {status} | Agent: {agent} | Reason: {reason}")
     now = datetime.now().isoformat()
-    with get_db() as conn:
+    with get_db_write() as conn:
         row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
         if not row:
             print(f"\u274c MOVE-TASK FAILED: Task #{task_id} not found")
@@ -339,16 +345,16 @@ async def move_task(task_id: int, status: str = None, agent: str = None, reason:
             print(f"\u274c MOVE-TASK BLOCKED: Only User can move to Done (agent={agent})")
             raise HTTPException(status_code=403, detail="Only User can move tasks to Done")
 
-        print(f"\U0001f4be MOVE-TASK: Updating status {old_status} \u2192 {status}")
-        conn.execute("UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?", (status, now, task_id))
-        try:
-            conn.commit()
-            print(f"\u2705 MOVE-TASK: Database updated successfully")
-        except Exception as e:
-            print(f"\u274c MOVE-TASK: Database commit failed - {e}")
-            raise
+        # If moving to Done, clear working_agent in same transaction
+        if status == "Done":
+            print(f"\U0001f4be MOVE-TASK: Updating status {old_status} \u2192 {status} and clearing working_agent")
+            conn.execute("UPDATE tasks SET status = ?, working_agent = NULL, agent_session_key = NULL, updated_at = ? WHERE id = ?", (status, now, task_id))
+        else:
+            print(f"\U0001f4be MOVE-TASK: Updating status {old_status} \u2192 {status}")
+            conn.execute("UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?", (status, now, task_id))
+        print(f"\u2705 MOVE-TASK: Database updated successfully")
 
-        log_activity(task_id, "moved", agent, f"Moved to {status}")
+        logger.info(f"Task #{task_id} moved: {old_status} -> {status} by {agent}")
 
         action_item = None
         if status == "Review" and old_status != "Review":
@@ -357,7 +363,6 @@ async def move_task(task_id: int, status: str = None, agent: str = None, reason:
                 "INSERT INTO action_items (task_id, agent, content, item_type, created_at) VALUES (?, ?, ?, ?, ?)",
                 (task_id, agent or task["agent"], content, "completion", now)
             )
-            conn.commit()
             action_item = {
                 "id": cursor.lastrowid, "task_id": task_id, "agent": agent or task["agent"],
                 "content": content, "item_type": "completion", "resolved": 0, "created_at": now
@@ -368,7 +373,6 @@ async def move_task(task_id: int, status: str = None, agent: str = None, reason:
                 "INSERT INTO action_items (task_id, agent, content, item_type, created_at) VALUES (?, ?, ?, ?, ?)",
                 (task_id, agent or task["agent"], content, "blocker", now)
             )
-            conn.commit()
             action_item = {
                 "id": cursor.lastrowid, "task_id": task_id, "agent": agent or task["agent"],
                 "content": content, "item_type": "blocker", "resolved": 0, "created_at": now
@@ -376,6 +380,8 @@ async def move_task(task_id: int, status: str = None, agent: str = None, reason:
 
         row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
         result = dict(row)
+
+    log_activity(task_id, "moved", agent, f"Moved to {status}")
 
     await manager.broadcast({"type": "task_updated", "task": result})
     if action_item:
@@ -388,9 +394,6 @@ async def move_task(task_id: int, status: str = None, agent: str = None, reason:
 
     session_cleared = False
     if status == "Done":
-        with get_db() as conn:
-            conn.execute("UPDATE tasks SET working_agent = NULL WHERE id = ?", (task_id,))
-            conn.commit()
         await manager.broadcast({"type": "work_stopped", "task_id": task_id, "agent": old_working})
         session_key = get_task_session(task_id)
         if session_key:
@@ -399,6 +402,7 @@ async def move_task(task_id: int, status: str = None, agent: str = None, reason:
             await stop_agent_session(session_key)
             set_task_session(task_id, None)
             session_cleared = True
+            logger.info(f"Task #{task_id} moved to Done — cleared agent session {session_key}")
             print(f"🧹 Cleared agent session for task #{task_id}")
 
     return {"status": "moved", "new_status": status, "action_item_created": action_item is not None, "session_cleared": session_cleared}
@@ -422,12 +426,12 @@ async def get_agent_status(task_id: int):
     if not alive:
         # Session is dead — clear stale data
         now = datetime.now().isoformat()
-        with get_db() as conn:
+        with get_db_write() as conn:
             conn.execute(
                 "UPDATE tasks SET agent_session_key = NULL, working_agent = NULL, updated_at = ? WHERE id = ?",
                 (now, task_id)
             )
-            conn.commit()
+        logger.info(f"Task #{task_id} agent-status: cleared dead session {session_key}")
         print(f"🧹 agent-status: Cleared dead session {session_key} for task #{task_id}")
         await manager.broadcast({"type": "work_stopped", "task_id": task_id, "agent": working_agent})
         return {"alive": False, "session_key": None, "working_agent": None}

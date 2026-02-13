@@ -2,11 +2,12 @@
 Comments: GET/POST/DELETE for task comments, with @mention spawning and agent relay.
 """
 
+import logging
 from datetime import datetime
 from fastapi import APIRouter, HTTPException
 
 from app.config import AGENT_TO_OPENCLAW_ID, MENTION_PATTERN
-from app.database import get_db
+from app.database import get_db, get_db_write
 from app.models import CommentCreate
 from app.websocket import manager
 from app.openclaw import (
@@ -14,6 +15,7 @@ from app.openclaw import (
     spawn_followup_session, spawn_mentioned_agent,
 )
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -36,7 +38,7 @@ async def add_comment(task_id: int, comment: CommentCreate):
     task_status = ""
     agent_session = None
 
-    with get_db() as conn:
+    with get_db_write() as conn:
         row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Task not found")
@@ -49,7 +51,6 @@ async def add_comment(task_id: int, comment: CommentCreate):
             "INSERT INTO comments (task_id, agent, content, created_at) VALUES (?, ?, ?, ?)",
             (task_id, comment.agent, comment.content, now)
         )
-        conn.commit()
 
         result = {
             "id": cursor.lastrowid,
@@ -67,9 +68,9 @@ async def add_comment(task_id: int, comment: CommentCreate):
                     "UPDATE tasks SET working_agent = NULL, updated_at = ? WHERE id = ?",
                     (now, task_id)
                 )
-                conn.commit()
                 working_agent_cleared = comment.agent
 
+    logger.info(f"Comment added on task #{task_id} by {comment.agent}")
     await manager.broadcast({"type": "comment_added", "task_id": task_id, "comment": result})
 
     if working_agent_cleared:
@@ -155,7 +156,7 @@ Respond by posting a comment to the task."""
 @router.delete("/api/tasks/{task_id}/comments/{comment_id}")
 async def delete_comment(task_id: int, comment_id: int):
     """Delete a comment from a task."""
-    with get_db() as conn:
+    with get_db_write() as conn:
         row = conn.execute(
             "SELECT id FROM comments WHERE id = ? AND task_id = ?",
             (comment_id, task_id)
@@ -163,8 +164,8 @@ async def delete_comment(task_id: int, comment_id: int):
         if not row:
             raise HTTPException(status_code=404, detail="Comment not found")
         conn.execute("DELETE FROM comments WHERE id = ?", (comment_id,))
-        conn.commit()
 
+    logger.info(f"Comment #{comment_id} deleted from task #{task_id}")
     await manager.broadcast({
         "type": "comment_deleted",
         "task_id": task_id,

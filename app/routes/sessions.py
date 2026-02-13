@@ -3,17 +3,19 @@ Sessions: list, create, stop, stop-all, delete OpenClaw sessions.
 """
 
 import json
+import logging
 import os
 from datetime import datetime
 from fastapi import APIRouter
 
 from app.config import OPENCLAW_ENABLED, OPENCLAW_GATEWAY_URL, OPENCLAW_TOKEN
-from app.database import get_db
+from app.database import get_db, get_db_write
 from app.models import SessionCreate
 from app.websocket import manager
 
 import httpx
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -68,11 +70,12 @@ async def list_sessions():
                     with get_db() as conn:
                         deleted_rows = conn.execute("SELECT session_key FROM deleted_sessions").fetchall()
                         deleted_keys = set(row["session_key"] for row in deleted_rows)
-                        orphaned_keys = deleted_keys - openclaw_keys
-                        if orphaned_keys:
+
+                    orphaned_keys = deleted_keys - openclaw_keys
+                    if orphaned_keys:
+                        with get_db_write() as conn:
                             placeholders = ",".join("?" * len(orphaned_keys))
                             conn.execute(f"DELETE FROM deleted_sessions WHERE session_key IN ({placeholders})", list(orphaned_keys))
-                            conn.commit()
 
                     formatted = [s for s in formatted if s["key"] not in deleted_keys]
                     formatted.sort(key=lambda x: (0 if "main" in x["key"].lower() else 1, -x.get("updatedAt", 0)))
@@ -188,10 +191,11 @@ async def delete_session(session_key: str):
     await stop_session(session_key)
     now = datetime.now().isoformat()
 
-    with get_db() as conn:
+    with get_db_write() as conn:
         conn.execute("DELETE FROM chat_messages WHERE session_key = ?", (session_key,))
         conn.execute("INSERT OR REPLACE INTO deleted_sessions (session_key, deleted_at) VALUES (?, ?)", (session_key, now))
-        conn.commit()
+
+    logger.info(f"Session {session_key} deleted")
 
     openclaw_deleted = False
     try:

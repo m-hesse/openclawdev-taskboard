@@ -16,7 +16,8 @@ from app.config import (
     STATIC_PATH, ALLOWED_ORIGINS, ALWAYS_ALLOWED_IPS, ALLOWED_DOCKER_IPS, ALLOWED_IPS,
     OPENCLAW_ENABLED, OPENCLAW_GATEWAY_URL, OPENCLAW_TOKEN,
     ATTACHMENTS_PATH, DATA_DIR,
-    _populate_agents_from_openclaw,
+    AGENT_AUTO_DETECT, AGENTS_ENV,
+    _populate_agents_from_openclaw, _build_agents_from_env,
 )
 from app.database import init_db
 from app.websocket import manager
@@ -153,7 +154,10 @@ app.include_router(api_router)
 @app.on_event("startup")
 async def startup():
     init_db()
-    if OPENCLAW_ENABLED:
+    # Agent detection: ENV > Auto-detect from OpenClaw > Fallback defaults
+    if AGENTS_ENV:
+        _build_agents_from_env()
+    elif AGENT_AUTO_DETECT and OPENCLAW_ENABLED:
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.post(
@@ -174,6 +178,9 @@ async def startup():
                     print(f"\u26a0\ufe0f OpenClaw agents_list failed: {response.status_code}, using fallback")
         except Exception as e:
             print(f"\u26a0\ufe0f Could not fetch agents from OpenClaw: {e}, using fallback")
+    else:
+        if not AGENT_AUTO_DETECT:
+            print("ℹ️ AGENT_AUTO_DETECT=false, using fallback agents")
 
 
 # Serve static files

@@ -2,15 +2,17 @@
 Project CRUD endpoints.
 """
 
+import logging
 import re
 from typing import List
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException
 
-from app.database import get_db
+from app.database import get_db, get_db_write
 from app.models import ProjectCreate, ProjectResponse
 from app.websocket import manager
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -37,7 +39,7 @@ async def create_project(project: ProjectCreate):
     if not slug:
         raise HTTPException(status_code=400, detail="Project name produces an empty slug")
     now = datetime.now(timezone.utc).isoformat()
-    with get_db() as conn:
+    with get_db_write() as conn:
         # Check for duplicate slug
         existing = conn.execute("SELECT id FROM projects WHERE slug = ?", (slug,)).fetchone()
         if existing:
@@ -46,9 +48,9 @@ async def create_project(project: ProjectCreate):
             "INSERT INTO projects (name, slug, description, color, created_at) VALUES (?, ?, ?, ?, ?)",
             (project.name, slug, project.description, project.color, now)
         )
-        conn.commit()
         row = conn.execute("SELECT * FROM projects WHERE id = ?", (cursor.lastrowid,)).fetchone()
         result = dict(row)
+    logger.info(f"Project created: {project.name} (slug={slug})")
     await manager.broadcast({"type": "project_created", "project": result})
     return result
 
@@ -58,13 +60,13 @@ async def delete_project(project_id: int):
     """Delete a project. Cannot delete Default (id=1). Reassigns tasks to Default."""
     if project_id == 1:
         raise HTTPException(status_code=400, detail="Cannot delete the Default project")
-    with get_db() as conn:
+    with get_db_write() as conn:
         row = conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Project not found")
         # Reassign tasks to Default project
         conn.execute("UPDATE tasks SET project_id = 1 WHERE project_id = ?", (project_id,))
         conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
-        conn.commit()
+    logger.info(f"Project #{project_id} deleted: {row['name']}")
     await manager.broadcast({"type": "project_deleted", "project_id": project_id})
     return {"status": "deleted", "id": project_id}
