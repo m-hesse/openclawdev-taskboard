@@ -104,6 +104,34 @@ def init_db():
                 deleted_at TEXT NOT NULL
             )
         """)
+
+        # Projects table
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS projects (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                slug TEXT UNIQUE NOT NULL,
+                description TEXT DEFAULT '',
+                color TEXT DEFAULT '#00b4d8',
+                created_at TEXT NOT NULL
+            )
+        """)
+
+        # Add project_id to tasks if not exists
+        try:
+            conn.execute("ALTER TABLE tasks ADD COLUMN project_id INTEGER DEFAULT 1 REFERENCES projects(id)")
+        except Exception:
+            pass  # Column already exists
+
+        # Ensure default project exists
+        cursor = conn.execute("SELECT id FROM projects WHERE slug = 'default'")
+        if not cursor.fetchone():
+            from datetime import datetime as dt, timezone
+            conn.execute(
+                "INSERT INTO projects (name, slug, description, color, created_at) VALUES (?, ?, ?, ?, ?)",
+                ("Default", "default", "Default project", "#00b4d8", dt.now(timezone.utc).isoformat())
+            )
+
         conn.commit()
 
 

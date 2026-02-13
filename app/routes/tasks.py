@@ -25,11 +25,14 @@ router = APIRouter()
 @router.get("/api/config")
 def get_config():
     """Get board configuration including branding."""
+    with get_db() as conn:
+        projects = [dict(row) for row in conn.execute("SELECT * FROM projects ORDER BY id").fetchall()]
     return {
         "agents": AGENTS,
         "agentMeta": AGENT_META,
         "statuses": STATUSES,
         "priorities": PRIORITIES,
+        "projects": projects,
         "branding": {
             "mainAgentName": MAIN_AGENT_NAME,
             "mainAgentEmoji": MAIN_AGENT_EMOJI,
@@ -41,7 +44,7 @@ def get_config():
 
 
 @router.get("/api/tasks", response_model=List[Task])
-def list_tasks(board: str = "tasks", agent: str = None, status: str = None):
+def list_tasks(board: str = "tasks", agent: str = None, status: str = None, project_id: int = None):
     """List all tasks with optional filters."""
     with get_db() as conn:
         query = "SELECT * FROM tasks WHERE board = ?"
@@ -52,6 +55,9 @@ def list_tasks(board: str = "tasks", agent: str = None, status: str = None):
         if status:
             query += " AND status = ?"
             params.append(status)
+        if project_id is not None:
+            query += " AND project_id = ?"
+            params.append(project_id)
         query += " ORDER BY CASE priority WHEN 'Critical' THEN 1 WHEN 'High' THEN 2 WHEN 'Medium' THEN 3 ELSE 4 END, created_at DESC"
         rows = conn.execute(query, params).fetchall()
         return [dict(row) for row in rows]
@@ -76,9 +82,9 @@ async def create_task(task: TaskCreate):
         with get_db() as conn:
             print(f"\U0001f4be CREATE-TASK: Inserting into database")
             cursor = conn.execute(
-                """INSERT INTO tasks (title, description, status, priority, agent, due_date, created_at, updated_at, board, source_file, source_ref)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (task.title, task.description, task.status, task.priority, task.agent, task.due_date, now, now, task.board, task.source_file, task.source_ref)
+                """INSERT INTO tasks (title, description, status, priority, agent, due_date, created_at, updated_at, board, source_file, source_ref, project_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (task.title, task.description, task.status, task.priority, task.agent, task.due_date, now, now, task.board, task.source_file, task.source_ref, task.project_id)
             )
             conn.commit()
             task_id = cursor.lastrowid
@@ -109,7 +115,7 @@ async def update_task(task_id: int, updates: TaskUpdate):
         changes = []
         update_fields = []
         params = []
-        for field in ["title", "description", "status", "priority", "agent", "due_date", "source_file", "source_ref"]:
+        for field in ["title", "description", "status", "priority", "agent", "due_date", "source_file", "source_ref", "project_id"]:
             new_value = getattr(updates, field)
             if new_value is not None and new_value != current[field]:
                 update_fields.append(f"{field} = ?")
