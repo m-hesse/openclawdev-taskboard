@@ -143,12 +143,8 @@ def init_db():
         except Exception:
             pass
 
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS deleted_sessions (
-                session_key TEXT PRIMARY KEY,
-                deleted_at TEXT NOT NULL
-            )
-        """)
+        # Drop legacy soft-delete table (sessions now deleted via WS RPC)
+        conn.execute("DROP TABLE IF EXISTS deleted_sessions")
 
         # Projects table
         conn.execute("""

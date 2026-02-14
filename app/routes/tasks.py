@@ -11,6 +11,7 @@ from app.config import (
     AGENTS, AGENT_META, AGENT_TO_OPENCLAW_ID,
     STATUSES, PRIORITIES,
     MAIN_AGENT_NAME, MAIN_AGENT_EMOJI, HUMAN_NAME, HUMAN_SUPERVISOR_LABEL, BOARD_TITLE,
+    AUTO_STOP_ON_DONE,
 )
 from app.database import get_db, get_db_write, log_activity
 from app.models import TaskCreate, TaskUpdate, Task
@@ -149,7 +150,7 @@ async def update_task(task_id: int, updates: TaskUpdate):
         log_activity(task_id, "updated", updates.agent or current["agent"], "; ".join(changes))
 
     # Auto-stop agent when task is moved to Done via PATCH
-    if moving_to_done:
+    if moving_to_done and AUTO_STOP_ON_DONE:
         # Use session key from pre-write data (already NULL in DB after write)
         session_key = current.get("agent_session_key")
         if session_key:
@@ -396,16 +397,16 @@ async def move_task(task_id: int, status: str = None, agent: str = None, reason:
     session_cleared = False
     if status == "Done":
         await manager.broadcast({"type": "work_stopped", "task_id": task_id, "agent": old_working})
-        # Use session key from pre-write task data (already NULL in DB after write)
-        session_key = task.get("agent_session_key")
-        if session_key:
-            # Auto-stop the agent session
-            print(f"🛑 Auto-stopping agent session {session_key} for task #{task_id} (moved to Done)")
-            await stop_agent_session(session_key)
-            set_task_session(task_id, None)
-            session_cleared = True
-            logger.info(f"Task #{task_id} moved to Done — cleared agent session {session_key}")
-            print(f"🧹 Cleared agent session for task #{task_id}")
+        if AUTO_STOP_ON_DONE:
+            # Use session key from pre-write task data (already NULL in DB after write)
+            session_key = task.get("agent_session_key")
+            if session_key:
+                print(f"🛑 Auto-stopping agent session {session_key} for task #{task_id} (moved to Done)")
+                await stop_agent_session(session_key)
+                set_task_session(task_id, None)
+                session_cleared = True
+                logger.info(f"Task #{task_id} moved to Done — cleared agent session {session_key}")
+                print(f"🧹 Cleared agent session for task #{task_id}")
 
     return {"status": "moved", "new_status": status, "action_item_created": action_item is not None, "session_cleared": session_cleared}
 

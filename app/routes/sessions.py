@@ -4,12 +4,11 @@ Sessions: list, create, stop, stop-all, delete OpenClaw sessions.
 
 import json
 import logging
-import os
 from datetime import datetime
 from fastapi import APIRouter
 
 from app.config import OPENCLAW_ENABLED, OPENCLAW_GATEWAY_URL, OPENCLAW_TOKEN
-from app.database import get_db, get_db_write
+from app.database import get_db_write
 from app.models import SessionCreate
 from app.websocket import manager
 
@@ -66,18 +65,6 @@ async def list_sessions():
                             "model": s.get("model", ""), "updatedAt": s.get("updatedAt", 0)
                         })
 
-                    openclaw_keys = set(s["key"] for s in formatted)
-                    with get_db() as conn:
-                        deleted_rows = conn.execute("SELECT session_key FROM deleted_sessions").fetchall()
-                        deleted_keys = set(row["session_key"] for row in deleted_rows)
-
-                    orphaned_keys = deleted_keys - openclaw_keys
-                    if orphaned_keys:
-                        with get_db_write() as conn:
-                            placeholders = ",".join("?" * len(orphaned_keys))
-                            conn.execute(f"DELETE FROM deleted_sessions WHERE session_key IN ({placeholders})", list(orphaned_keys))
-
-                    formatted = [s for s in formatted if s["key"] not in deleted_keys]
                     formatted.sort(key=lambda x: (0 if "main" in x["key"].lower() else 1, -x.get("updatedAt", 0)))
                     return {"sessions": formatted}
 
@@ -181,44 +168,20 @@ async def stop_all_sessions():
 
 @router.delete("/api/sessions/{session_key}")
 async def delete_session(session_key: str):
-    """Close/delete a session."""
+    """Delete a session via OpenClaw WebSocket RPC."""
     if not OPENCLAW_ENABLED:
         return {"success": False, "error": "OpenClaw integration not enabled"}
 
-    await stop_session(session_key)
-    now = datetime.now().isoformat()
+    from app.openclaw import stop_agent_session
 
+    # stop_agent_session uses _ws_rpc("sessions.delete") which fully removes the session
+    success = await stop_agent_session(session_key)
+
+    # Clear local references
     with get_db_write() as conn:
         conn.execute("DELETE FROM chat_messages WHERE session_key = ?", (session_key,))
-        conn.execute("INSERT OR REPLACE INTO deleted_sessions (session_key, deleted_at) VALUES (?, ?)", (session_key, now))
+        conn.execute("UPDATE tasks SET agent_session_key = NULL WHERE agent_session_key = ?", (session_key,))
 
-    logger.info(f"Session {session_key} deleted")
-
-    openclaw_deleted = False
-    try:
-        parts = session_key.split(":")
-        if len(parts) >= 2 and parts[0] == "agent":
-            agent_id = parts[1]
-            openclaw_home = os.environ.get("OPENCLAW_DATA_PATH", os.path.expanduser("~/.openclaw"))
-            sessions_file = os.path.join(openclaw_home, "agents", agent_id, "sessions", "sessions.json")
-            if os.path.exists(sessions_file):
-                with open(sessions_file, 'r', encoding='utf-8') as f:
-                    sessions_data = json.load(f)
-                session_id = None
-                if session_key in sessions_data:
-                    session_id = sessions_data[session_key].get("sessionId")
-                    del sessions_data[session_key]
-                    with open(sessions_file, 'w', encoding='utf-8') as f:
-                        json.dump(sessions_data, f, indent=2)
-                    openclaw_deleted = True
-                    print(f"Deleted session {session_key} from OpenClaw store")
-                    if session_id:
-                        transcript_file = os.path.join(openclaw_home, "agents", agent_id, "sessions", f"{session_id}.jsonl")
-                        if os.path.exists(transcript_file):
-                            os.remove(transcript_file)
-                            print(f"Deleted transcript {transcript_file}")
-    except Exception as e:
-        print(f"Warning: Could not delete from OpenClaw store: {e}")
-
+    logger.info(f"Session {session_key} deleted (openclaw={'ok' if success else 'failed'})")
     await manager.broadcast({"type": "session_deleted", "session_key": session_key})
-    return {"success": True, "message": f"Deleted session: {session_key}", "openclaw_deleted": openclaw_deleted}
+    return {"success": True, "message": f"Deleted session: {session_key}"}

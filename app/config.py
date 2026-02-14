@@ -176,6 +176,8 @@ TASKBOARD_API_KEY = os.getenv("TASKBOARD_API_KEY", "")
 TASKBOARD_BASE_URL = os.getenv("TASKBOARD_BASE_URL", "http://localhost:8080")
 OPENCLAW_ENABLED = bool(OPENCLAW_TOKEN)
 AGENT_AUTO_DETECT = os.getenv("AGENT_AUTO_DETECT", "true").lower() in ("true", "1", "yes")
+# Auto-stop agent sessions when a task is moved to Done
+AUTO_STOP_ON_DONE = os.getenv("AUTO_STOP_ON_DONE", "true").lower() in ("true", "1", "yes")
 # Comma-separated list of agent_id:Display Name pairs, e.g. "main:Jarvis,architect:Architect,code-reviewer:Code Reviewer"
 AGENTS_ENV = os.getenv("AGENTS", "")
 

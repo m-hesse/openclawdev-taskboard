@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.0.0] - 2026-02-13
+
+### Added
+- **Multi-project support**: Create, switch between, and manage multiple projects. Tasks belong to a project, with a "Default" project for backwards compatibility.
+- **Project switcher**: Dropdown in header to filter tasks by project. "All Projects" view shows colored project badges on cards.
+- **Project manager modal**: Add/remove projects with custom name, color, and description.
+- **"Todo" status column**: New column between Backlog and In Progress (6 columns total).
+- **Advanced filter bar**: Combine Priority, Agent, and keyword search filters (client-side AND logic).
+- **Markdown export**: "Export MD" button in task modal exports task details, action items, and comments as downloadable `.md` file.
+- **Agent session hardening**: Guard against double-spawn, session liveness check on card open, auto-stop agent when task moves to Done.
+- **Configurable agent detection**: `AGENTS` env var for manual agent configuration, `AGENT_AUTO_DETECT` toggle. Priority: ENV > OpenClaw auto-detect > fallback defaults.
+- **Responsive design**: CSS media queries for tablet (768px) and mobile (480px) breakpoints.
+- **Status validation**: Backend rejects invalid statuses/priorities with HTTP 422.
+
+### Changed
+- **Backend architecture**: Refactored monolithic `app.py` (2600 lines) into `app/` package with modular structure (`config.py`, `database.py`, `models.py`, `websocket.py`, `openclaw.py`, `routes/`).
+- **Dockerfile**: Now copies `app/` directory, runs `uvicorn app.main:app`.
+- **Task form**: Now includes Project dropdown for assigning tasks to projects.
+
+### Fixed
+- **Status enforcement**: Backend now strictly validates statuses against UI-represented values.
+
 ## [1.3.0] - 2026-02-03
 
 ### Added

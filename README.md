@@ -291,16 +291,17 @@ The task board will auto-spawn agent sessions when tasks move to "In Progress".
 ## 📋 Workflow
 
 ```
-Backlog → In Progress → Review → Done
-              ↓
-           Blocked
+Backlog → Todo → In Progress → Review → Done
+                      ↓
+                   Blocked
 ```
 
-1. **Backlog** — Tasks waiting to be started
-2. **In Progress** — Agent session auto-spawns, work begins
-3. **Review** — Agent completed work, awaiting approval
-4. **Done** — Human approval required (cannot be set by agents)
-5. **Blocked** — Waiting on external input
+1. **Backlog** — Tasks waiting to be triaged
+2. **Todo** — Triaged, ready to be picked up
+3. **In Progress** — Agent session auto-spawns, work begins
+4. **Review** — Agent completed work, awaiting approval
+5. **Done** — Approved and complete (auto-stops agent session)
+6. **Blocked** — Waiting on external input
 
 ---
 
@@ -411,21 +412,19 @@ Action items track **what needs attention** with notification bubbles on cards:
 
 ### Adding New Agents
 
-Edit `app.py`:
+Agents are auto-detected from OpenClaw at startup. To configure manually, set in `.env`:
 
-```python
-AGENT_TO_OPENCLAW_ID = {
-    "Your Agent": "your-agent-id",
-    ...
-}
+```env
+# Format: agent_id:Display Name (comma-separated)
+AGENTS=main:Jarvis,architect:Architect,my-agent:My Custom Agent
 
-AGENT_SYSTEM_PROMPTS = {
-    "your-agent-id": "Your agent's system prompt...",
-    ...
-}
+# Optional: disable auto-detection
+AGENT_AUTO_DETECT=false
 ```
 
-Update `static/index.html` for agent icon:
+Agent icons and colors are assigned automatically. Built-in agents (`main`, `architect`, `security-auditor`, `code-reviewer`, `ux-manager`) have predefined icons and colors. Custom agents get auto-assigned colors.
+
+See [OPENCLAW_SETUP.md](OPENCLAW_SETUP.md) for full agent configuration details.
 
 ```javascript
 const AGENT_ICONS = {
