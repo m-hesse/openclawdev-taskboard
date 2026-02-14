@@ -28,6 +28,8 @@ https://github.com/user-attachments/assets/fc4237c9-c4e5-437d-8638-1a51e8eb6219
 - **Responsive Design** — CSS media queries for tablet (768px) and mobile (480px)
 - **Dockerized & CORS-Configurable** — `TASKBOARD_BASE_URL` for proxy/domain deployments, IP restriction middleware
 - **Status Validation** — Backend rejects invalid statuses/priorities with HTTP 422
+- **Auto-Save Task Fields** — Status, priority, agent, project, due date auto-save on change
+- **Inline Action Item Creation** — "+ Add" button with type picker directly in task modal
 
 #### 🏗️ Backend Refactor
 - Refactored monolithic `app.py` (2600 lines) into modular `app/` package

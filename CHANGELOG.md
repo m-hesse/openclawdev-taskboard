@@ -24,7 +24,12 @@ All notable changes to this project will be documented in this file.
 - **Filter bar**: Combined priority, agent, and keyword search filters (client-side AND logic)
 - **"Todo" status column**: New column between Backlog and In Progress (6 columns total: Backlog → Todo → In Progress → Review → Done → Blocked)
 - **Markdown export**: "Export MD" button in task modal — exports title, metadata table, description, action items (as checklist), and comments as downloadable `.md`
-
+- **Auto-save task fields**: Status, priority, agent, project, due date, and description auto-save on change/blur — no more manual save for field updates
+- **Inline action item creation**: "+ Add" button in action items section with type picker (question/blocker/completion) and inline text input
+- **Improved task modal layout**: Larger modal (720×700px), 8-row description textarea, project field moved to first row, form fields split into two rows
+- **Better save feedback**: Longer glow animation (2.5s), green background pulse, white icon with glow filter
+- **Resolved action items**: Green checkmark (#10b981) instead of muted gray
+- **Project switcher moved to filter bar**: Cleaner header with "Projects" button for project manager
 
 ### Added — Agent Management
 
