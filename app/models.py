@@ -75,6 +75,7 @@ class Task(BaseModel):
     source_file: Optional[str] = None
     source_ref: Optional[str] = None
     working_agent: Optional[str] = None
+    agent_session_key: Optional[str] = None
     project_id: int = 1
 
 

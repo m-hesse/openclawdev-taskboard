@@ -120,23 +120,20 @@ async def stop_session(session_key: str):
     """Stop/abort a running session."""
     if not OPENCLAW_ENABLED:
         return {"success": False, "error": "OpenClaw integration not enabled"}
+    from app.openclaw import stop_agent_session, set_task_session
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            payload = {
-                "tool": "sessions_send",
-                "args": {"sessionKey": session_key, "message": "SYSTEM: ABORT - User requested stop from Task Board"}
-            }
-            headers = {"Authorization": f"Bearer {OPENCLAW_TOKEN}", "Content-Type": "application/json"}
-            await client.post(f"{OPENCLAW_GATEWAY_URL}/tools/invoke", json=payload, headers=headers)
-            try:
-                abort_response = await client.post(
-                    f"{OPENCLAW_GATEWAY_URL}/api/sessions/{session_key}/abort", headers=headers
-                )
-                if abort_response.status_code == 200:
-                    return {"success": True, "message": f"Stopped session: {session_key}"}
-            except:
-                pass
-            return {"success": True, "message": f"Stop signal sent to: {session_key}"}
+        success = await stop_agent_session(session_key)
+        # Clear session key from any task that references it
+        with get_db_write() as conn:
+            conn.execute(
+                "UPDATE tasks SET agent_session_key = NULL WHERE agent_session_key = ?",
+                (session_key,)
+            )
+        print(f"🧹 Cleared DB session key {session_key[:30]}...")
+        if success:
+            return {"success": True, "message": f"Stopped session: {session_key}"}
+        else:
+            return {"success": False, "error": f"Failed to stop session: {session_key}"}
     except Exception as e:
         print(f"Error stopping session: {e}")
         return {"success": False, "error": str(e)}

@@ -3684,17 +3684,19 @@
             // Check agent session liveness
             try {
                 const agentStatus = await fetch(`${API}/api/tasks/${taskId}/agent-status`).then(r => r.json());
-                if (agentStatus.alive) {
-                    updateAgentToggleButton(true, agentStatus.working_agent);
+                // Show Stop button if session key exists (session may be idle but still reachable)
+                const hasSession = !!agentStatus.session_key;
+                if (hasSession || agentStatus.alive) {
+                    updateAgentToggleButton(true, agentStatus.working_agent || task.agent);
                     if (agentStatus.working_agent) {
                         showChatWorkingIndicator(agentStatus.working_agent);
                     }
                 } else {
                     updateAgentToggleButton(false, null);
                     hideChatWorkingIndicator();
-                    // Update local task data if session was cleared
+                    // Update local task data if no session at all
                     const localTask = tasks.find(t => t.id === taskId);
-                    if (localTask && !agentStatus.alive && !agentStatus.working_agent) {
+                    if (localTask) {
                         localTask.working_agent = null;
                         localTask.agent_session_key = null;
                     }
@@ -5318,8 +5320,8 @@
             const task = tasks.find(t => t.id == taskId);
             if (!task) { btn.disabled = false; return; }
 
-            // Determine if agent is currently working
-            const isWorking = !!(task.working_agent || (workingAgentsByTask[taskId] && workingAgentsByTask[taskId].size > 0));
+            // Determine if agent is currently working (or has a live session)
+            const isWorking = !!(task.working_agent || task.agent_session_key || (workingAgentsByTask[taskId] && workingAgentsByTask[taskId].size > 0));
 
             try {
                 if (isWorking) {

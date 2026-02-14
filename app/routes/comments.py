@@ -11,8 +11,8 @@ from app.database import get_db, get_db_write
 from app.models import CommentCreate
 from app.websocket import manager
 from app.openclaw import (
-    notify_OPENCLAW, send_to_agent_session,
-    spawn_followup_session, spawn_mentioned_agent,
+    notify_OPENCLAW, send_to_agent_session, spawn_mentioned_agent,
+    spawn_followup_session,
 )
 
 logger = logging.getLogger(__name__)
@@ -111,42 +111,33 @@ async def add_comment(task_id: int, comment: CommentCreate):
                     )
                     print(f"\U0001f4e2 Spawned {matched_agent} for mention in task #{task_id}")
 
-    # If from User and task is active, relay to assigned agent
-    if comment.agent == "User" and task_status in ["In Progress", "Review"] and not mentions:
+    # If from User, relay to agent session or spawn followup
+    if comment.agent == "User" and not mentions:
+        assigned_agent = None
         with get_db() as conn:
             row = conn.execute("SELECT agent FROM tasks WHERE id = ?", (task_id,)).fetchone()
             assigned_agent = row["agent"] if row else None
 
         if assigned_agent and assigned_agent in AGENT_TO_OPENCLAW_ID and assigned_agent != "User":
-            previous_comments = []
-            with get_db() as conn:
-                rows = conn.execute(
-                    "SELECT agent, content FROM comments WHERE task_id = ? ORDER BY created_at DESC LIMIT 5",
-                    (task_id,)
-                ).fetchall()
-                previous_comments = [{"agent": r["agent"], "content": r["content"][:500]} for r in reversed(rows)]
-
-            context = "\n".join([f"**{c['agent']}:** {c['content']}" for c in previous_comments[:-1]])
-
             sent = False
             if agent_session:
-                message = f"""\U0001f4ac **User replied on Task #{task_id}:**
-
-{comment.content}
-
----
-Respond by posting a comment to the task."""
+                message = f"💬 **User replied on Task #{task_id}:**\n\n{comment.content}\n\n---\nRespond by posting a comment to the task."
                 sent = await send_to_agent_session(agent_session, message)
+                if sent:
+                    print(f"📨 Relayed user comment to session {agent_session} for task #{task_id}")
 
             if not sent:
-                print(f"\U0001f504 Session ended, spawning follow-up for task #{task_id}")
-                await spawn_followup_session(
-                    task_id=task_id,
-                    task_title=task_title,
-                    agent_name=assigned_agent,
-                    previous_context=context,
-                    new_message=comment.content
-                )
+                # Session dead or missing — spawn a followup session
+                print(f"🔄 Spawning followup session for task #{task_id} (assigned: {assigned_agent})")
+                previous_comments = []
+                with get_db() as conn:
+                    rows = conn.execute(
+                        "SELECT agent, content FROM comments WHERE task_id = ? ORDER BY created_at DESC LIMIT 5",
+                        (task_id,)
+                    ).fetchall()
+                    previous_comments = [f"**{r['agent']}:** {r['content'][:500]}" for r in reversed(rows)]
+                context = "\n".join(previous_comments[:-1])
+                await spawn_followup_session(task_id, task_title, assigned_agent, context, comment.content)
     elif comment.agent not in ["System", "User"] + list(AGENT_TO_OPENCLAW_ID.keys()):
         await notify_OPENCLAW(task_id, task_title, comment.agent, comment.content)
 

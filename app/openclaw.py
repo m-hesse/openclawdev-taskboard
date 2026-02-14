@@ -2,7 +2,11 @@
 OpenClaw/agent integration: spawn, send, stop, prompts, guardrails.
 """
 
+import asyncio
 import httpx
+import json as _json
+import uuid
+import websockets
 from typing import Optional
 from datetime import datetime
 
@@ -83,12 +87,12 @@ def get_task_session(task_id: int) -> Optional[str]:
 
 def set_task_session(task_id: int, session_key: Optional[str]):
     """Set or clear the agent session key for a task."""
-    with get_db() as conn:
+    from app.database import get_db_write
+    with get_db_write() as conn:
         conn.execute(
             "UPDATE tasks SET agent_session_key = ?, updated_at = ? WHERE id = ?",
             (session_key, datetime.now().isoformat(), task_id)
         )
-        conn.commit()
 
 
 # =============================================================================
@@ -246,49 +250,136 @@ async def is_session_alive(session_key: str) -> bool:
             result = response.json() if response.status_code == 200 else None
             if result and result.get("ok"):
                 sessions = result.get("result", [])
+                # Handle various response formats
                 if isinstance(sessions, dict):
-                    sessions = sessions.get("sessions", [])
+                    # Could be {"sessions": [...]} or {"content": [...]}
+                    sessions = sessions.get("sessions", sessions.get("content", []))
+                # If result is a list of content blocks (tool response format)
+                if isinstance(sessions, list) and len(sessions) > 0 and isinstance(sessions[0], dict) and "text" in sessions[0]:
+                    import json as _json
+                    try:
+                        parsed = _json.loads(sessions[0]["text"])
+                        if isinstance(parsed, list):
+                            sessions = parsed
+                        elif isinstance(parsed, dict):
+                            sessions = parsed.get("sessions", [])
+                    except (ValueError, KeyError):
+                        pass
+                print(f"🔍 is_session_alive: Looking for {session_key} in {len(sessions)} sessions")
                 for s in sessions:
                     key = s.get("sessionKey") or s.get("key") or s.get("id", "")
                     if key == session_key:
                         status = s.get("status", "").lower()
+                        print(f"🔍 is_session_alive: Found! Status={status}")
                         return status not in ("stopped", "dead", "terminated", "error")
+                print(f"🔍 is_session_alive: Session {session_key} NOT found in list")
+            else:
+                print(f"🔍 is_session_alive: API response not ok: {result}")
             return False
     except Exception as e:
         print(f"⚠️  is_session_alive check failed: {e}")
         return False
 
 
+def _get_ws_url() -> str:
+    """Derive WebSocket URL from gateway HTTP URL."""
+    url = OPENCLAW_GATEWAY_URL.replace("http://", "ws://").replace("https://", "wss://")
+    return url.rstrip("/") + "/ws"
+
+
+async def _ws_rpc(method: str, params: dict, timeout: float = 10.0) -> dict:
+    """Send a single JSON-RPC-style request over WebSocket to OpenClaw gateway."""
+    ws_url = _get_ws_url()
+    req_id = str(uuid.uuid4())
+    msg = _json.dumps({"type": "req", "id": req_id, "method": method, "params": params})
+    print(f"🔌 WS-RPC: Connecting to {ws_url}")
+    print(f"🔌 WS-RPC: Sending {method} → {_json.dumps(params)[:200]}")
+    async with websockets.connect(
+        ws_url,
+        origin=OPENCLAW_GATEWAY_URL,
+        open_timeout=5,
+        close_timeout=5,
+    ) as ws:
+        # Step 1: Wait for connect.challenge event from server
+        nonce = None
+        while True:
+            raw = await asyncio.wait_for(ws.recv(), timeout=5)
+            data = _json.loads(raw)
+            print(f"🔌 WS-RPC: Recv type={data.get('type')} event={data.get('event', '')}")
+            if data.get("type") == "event" and data.get("event") == "connect.challenge":
+                nonce = data.get("payload", {}).get("nonce", "")
+                print(f"🔌 WS-RPC: Got challenge nonce={nonce[:8]}...")
+                break
+
+        # Step 2: Send connect with auth token
+        connect_id = str(uuid.uuid4())
+        connect_msg = _json.dumps({
+            "type": "req",
+            "id": connect_id,
+            "method": "connect",
+            "params": {
+                "minProtocol": 3,
+                "maxProtocol": 3,
+                "client": {"id": "openclaw-control-ui", "version": "dev", "platform": "linux", "mode": "webchat"},
+                "role": "operator",
+                "scopes": ["operator.admin", "operator.approvals", "operator.pairing"],
+                "auth": {"token": OPENCLAW_TOKEN},
+            }
+        })
+        await ws.send(connect_msg)
+        print(f"🔌 WS-RPC: Sent connect (id={connect_id[:8]}...)")
+
+        # Step 3: Wait for connect response
+        while True:
+            raw = await asyncio.wait_for(ws.recv(), timeout=5)
+            data = _json.loads(raw)
+            print(f"🔌 WS-RPC: Handshake recv type={data.get('type')} ok={data.get('ok')}")
+            if data.get("id") == connect_id:
+                if data.get("ok") is False:
+                    print(f"🔌 WS-RPC: Connect failed: {data.get('error')}")
+                    return {}
+                print(f"🔌 WS-RPC: Connected!")
+                break
+
+        # Step 4: Send actual request
+        await ws.send(msg)
+        print(f"🔌 WS-RPC: Sent {method} (id={req_id[:8]}...)")
+        deadline = asyncio.get_event_loop().time() + timeout
+        while asyncio.get_event_loop().time() < deadline:
+            try:
+                raw = await asyncio.wait_for(ws.recv(), timeout=timeout)
+                data = _json.loads(raw)
+                msg_type = data.get("type", "")
+                print(f"🔌 WS-RPC: Recv type={msg_type} id={str(data.get('id',''))[:8]}")
+                if data.get("id") == req_id:
+                    print(f"🔌 WS-RPC: Response: {_json.dumps(data)[:500]}")
+                    return data
+            except asyncio.TimeoutError:
+                print(f"🔌 WS-RPC: Timeout waiting for response")
+                break
+    print(f"🔌 WS-RPC: No matching response received")
+    return {}
+
+
 async def stop_agent_session(session_key: str) -> bool:
-    """Stop an OpenClaw agent session via sessions_stop."""
+    """Stop an OpenClaw agent session via WebSocket RPC sessions.delete."""
     if not OPENCLAW_ENABLED or not session_key:
+        print(f"⚠️ stop_agent_session: Skipped (enabled={OPENCLAW_ENABLED}, key={session_key})")
         return False
+    print(f"🛑 stop_agent_session: Deleting session {session_key}")
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            payload = {
-                "tool": "sessions_stop",
-                "args": {
-                    "sessionKey": session_key
-                }
-            }
-            headers = {
-                "Authorization": f"Bearer {OPENCLAW_TOKEN}",
-                "Content-Type": "application/json"
-            }
-            response = await client.post(
-                f"{OPENCLAW_GATEWAY_URL}/tools/invoke",
-                json=payload,
-                headers=headers
-            )
-            result = response.json() if response.status_code == 200 else None
-            if result and result.get("ok"):
-                print(f"✅ Stopped session {session_key}")
-                return True
-            else:
-                print(f"❌ Failed to stop session {session_key}: {response.text}")
-                return False
+        result = await _ws_rpc("sessions.delete", {"key": session_key, "deleteTranscript": True})
+        if result.get("type") == "resp" or result.get("result") is not None:
+            print(f"✅ Deleted session {session_key} via WS RPC")
+            return True
+        elif result.get("error"):
+            print(f"❌ WS RPC sessions.delete error: {_json.dumps(result.get('error'))}")
+            return False
+        else:
+            print(f"⚠️ WS RPC sessions.delete — no matching response: {_json.dumps(result)[:300]}")
+            return False
     except Exception as e:
-        print(f"❌ Failed to stop agent session: {e}")
+        print(f"❌ Failed to delete agent session via WS: {type(e).__name__}: {e}")
         return False
 
 
@@ -443,6 +534,32 @@ async def spawn_followup_session(task_id: int, task_title: str, agent_name: str,
     if not OPENCLAW_ENABLED:
         return None
 
+    # In-flight guard: reuse same set as spawn_agent_session
+    if task_id in _spawning_tasks:
+        print(f"⏩ FOLLOWUP SKIPPED: Already spawning for task #{task_id}")
+        return None
+
+    # Double-spawn guard: check if session already exists and is alive
+    existing_key = get_task_session(task_id)
+    if existing_key:
+        alive = await is_session_alive(existing_key)
+        if alive:
+            print(f"ℹ️  FOLLOWUP SKIPPED: Task #{task_id} already has live session {existing_key}, sending message instead")
+            sent = await send_to_agent_session(existing_key, f"💬 **User replied on Task #{task_id}:**\n\n{new_message}\n\n---\nRespond by posting a comment to the task.")
+            if sent:
+                return None
+            # If send failed, session is dead — clear and continue to spawn
+            print(f"🧹 FOLLOWUP: Session {existing_key} unresponsive, clearing")
+            set_task_session(task_id, None)
+
+    _spawning_tasks.add(task_id)
+    try:
+        return await _do_spawn_followup(task_id, task_title, agent_name, previous_context, new_message)
+    finally:
+        _spawning_tasks.discard(task_id)
+
+
+async def _do_spawn_followup(task_id: int, task_title: str, agent_name: str, previous_context: str, new_message: str):
     agent_id = AGENT_TO_OPENCLAW_ID.get(agent_name)
     if not agent_id:
         return None

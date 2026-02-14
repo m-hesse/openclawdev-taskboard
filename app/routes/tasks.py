@@ -150,7 +150,8 @@ async def update_task(task_id: int, updates: TaskUpdate):
 
     # Auto-stop agent when task is moved to Done via PATCH
     if moving_to_done:
-        session_key = get_task_session(task_id)
+        # Use session key from pre-write data (already NULL in DB after write)
+        session_key = current.get("agent_session_key")
         if session_key:
             print(f"🛑 Auto-stopping agent session {session_key} for task #{task_id} (PATCH to Done)")
             await stop_agent_session(session_key)
@@ -234,18 +235,15 @@ async def start_work(task_id: int, agent: str):
         print(f"\U0001f4e1 START-WORK: Broadcasting task_updated event (status changed)")
         await manager.broadcast({"type": "task_updated", "task": result})
 
+    # Spawn agent if no session exists yet (Play button or manual start-work).
+    # If agent was already spawned (e.g. via /move), existing session prevents double-spawn.
     if agent in AGENT_TO_OPENCLAW_ID and agent != "User":
         existing_session = get_task_session(task_id)
         if not existing_session:
-            print(f"\U0001f680 START-WORK: Auto-spawning {agent} for task #{task_id}")
-            await spawn_agent_session(
-                task_id=task_id,
-                task_title=result["title"],
-                task_description=result.get("description", ""),
-                agent_name=agent
-            )
+            print(f"🚀 START-WORK: Spawning {agent} for task #{task_id}")
+            await spawn_agent_session(task_id, result["title"], result.get("description", ""), agent)
         else:
-            print(f"\u23e9 START-WORK: Session already exists for task #{task_id}: {existing_session}")
+            print(f"⏩ START-WORK: Session already exists for task #{task_id}: {existing_session}")
 
     print(f"\u2705 START-WORK COMPLETE: Task #{task_id} | Agent: {agent} | Moved: {moved}")
     return {"status": "working", "task_id": task_id, "agent": agent, "moved_to": "In Progress" if moved else None}
@@ -268,7 +266,7 @@ async def stop_work(task_id: int, agent: str = None, outcome: str = None, reason
         action_item = None
         print(f"\U0001f4cb STOP-WORK: Current status: {current_status} | Current working_agent: {current_working}")
 
-        if outcome == "review" and current_status == "In Progress":
+        if outcome == "review" and current_status not in ("Review", "Done"):
             new_status = "Review"
             print(f"\U0001f504 STOP-WORK: Auto-moving to Review (outcome=review)")
             reason_text = reason or "Work completed, ready for review"
@@ -293,17 +291,19 @@ async def stop_work(task_id: int, agent: str = None, outcome: str = None, reason
         else:
             print(f"\U0001f4be STOP-WORK: Clearing working_agent (no status change)")
 
+        # Keep agent_session_key alive — session stays until Done or explicit UI stop.
+        # Only clear working_agent (agent is no longer actively working, but session remains for follow-ups).
         if new_status:
-            print(f"\U0001f4be STOP-WORK: Updating DB - working_agent=NULL, agent_session_key=NULL, status={new_status}")
+            print(f"💾 STOP-WORK: Updating DB - working_agent=NULL, status={new_status} (session key preserved)")
             conn.execute(
-                "UPDATE tasks SET working_agent = NULL, agent_session_key = NULL, status = ?, updated_at = ? WHERE id = ?",
+                "UPDATE tasks SET working_agent = NULL, status = ?, updated_at = ? WHERE id = ?",
                 (new_status, now, task_id)
             )
             logger.info(f"Task #{task_id} status change: {current_status} -> {new_status} by {agent or 'Agent'} (stop-work)")
         else:
-            print(f"\U0001f4be STOP-WORK: Updating DB - working_agent=NULL, agent_session_key=NULL (status unchanged)")
+            print(f"💾 STOP-WORK: Updating DB - working_agent=NULL (status unchanged, session key preserved)")
             conn.execute(
-                "UPDATE tasks SET working_agent = NULL, agent_session_key = NULL, updated_at = ? WHERE id = ?",
+                "UPDATE tasks SET working_agent = NULL, updated_at = ? WHERE id = ?",
                 (now, task_id)
             )
         print(f"\u2705 STOP-WORK: Database updated successfully")
@@ -390,12 +390,14 @@ async def move_task(task_id: int, status: str = None, agent: str = None, reason:
     if status == "In Progress" and old_status != "In Progress":
         assigned_agent = result.get("agent", "Unassigned")
         if assigned_agent in AGENT_TO_OPENCLAW_ID and assigned_agent != "User":
-            print(f"\u2139\ufe0f MOVE-TASK: Task #{task_id} moved to In Progress \u2014 spawn delegated to start_work()")
+            print(f"🚀 MOVE-TASK: Task #{task_id} moved to In Progress — auto-spawning {assigned_agent}")
+            await spawn_agent_session(task_id, result.get("title", ""), result.get("description", ""), assigned_agent)
 
     session_cleared = False
     if status == "Done":
         await manager.broadcast({"type": "work_stopped", "task_id": task_id, "agent": old_working})
-        session_key = get_task_session(task_id)
+        # Use session key from pre-write task data (already NULL in DB after write)
+        session_key = task.get("agent_session_key")
         if session_key:
             # Auto-stop the agent session
             print(f"🛑 Auto-stopping agent session {session_key} for task #{task_id} (moved to Done)")
@@ -423,20 +425,9 @@ async def get_agent_status(task_id: int):
         return {"alive": False, "session_key": None, "working_agent": working_agent}
 
     alive = await is_session_alive(session_key)
-    if not alive:
-        # Session is dead — clear stale data
-        now = datetime.now().isoformat()
-        with get_db_write() as conn:
-            conn.execute(
-                "UPDATE tasks SET agent_session_key = NULL, working_agent = NULL, updated_at = ? WHERE id = ?",
-                (now, task_id)
-            )
-        logger.info(f"Task #{task_id} agent-status: cleared dead session {session_key}")
-        print(f"🧹 agent-status: Cleared dead session {session_key} for task #{task_id}")
-        await manager.broadcast({"type": "work_stopped", "task_id": task_id, "agent": working_agent})
-        return {"alive": False, "session_key": None, "working_agent": None}
-
-    return {"alive": True, "session_key": session_key, "working_agent": working_agent}
+    # Don't clear session key here — it's needed for followup spawning.
+    # Session cleanup only happens on Done or explicit Stop.
+    return {"alive": alive, "session_key": session_key, "working_agent": working_agent}
 
 
 @router.get("/api/activity")
