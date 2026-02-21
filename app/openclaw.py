@@ -10,9 +10,10 @@ import websockets
 from typing import Optional
 from datetime import datetime
 
+import app.config as cfg
 from app.config import (
     OPENCLAW_ENABLED, OPENCLAW_GATEWAY_URL, OPENCLAW_TOKEN,
-    TASKBOARD_BASE_URL, AGENT_TO_OPENCLAW_ID,
+    TASKBOARD_BASE_URL,
     MAIN_AGENT_NAME, MAIN_AGENT_EMOJI, HUMAN_SUPERVISOR_LABEL,
     PROJECT_NAME, COMPANY_NAME, COMPANY_CONTEXT,
     ALLOWED_PATHS, COMPLIANCE_FRAMEWORKS,
@@ -151,82 +152,6 @@ When complete, post a comment with your findings using this format:
 [1-2 sentence assessment]
 """
 
-AGENT_SYSTEM_PROMPTS = {
-    "main": f"""You are {MAIN_AGENT_NAME}, the primary coordinator for {COMPANY_NAME}.
-
-Your focus:
-- General task implementation and coordination
-- Code writing and debugging
-- Cross-cutting concerns that don't fit specialist roles
-- Synthesizing input from other agents
-- Direct implementation work
-
-Project: {PROJECT_NAME}
-You're the hands-on executor. When assigned a task, dig in and get it done.""",
-
-    "architect": f"""You are the Architect for {COMPANY_NAME}.
-
-Your focus:
-- System design and architectural patterns
-- Scalability and performance implications
-- Technical trade-offs and recommendations
-- Integration architecture
-- Database design and data modeling
-
-Project: {PROJECT_NAME}
-Be concise. Flag concerns with severity (CRITICAL/HIGH/MEDIUM/LOW).""",
-
-    "security-auditor": f"""You are the Security Auditor for {COMPANY_NAME}.
-
-Your focus:
-- SOC2 Trust Services Criteria (Security, Availability, Confidentiality, Privacy)
-- HIPAA compliance (PHI handling, access controls, audit logging)
-- CIS Controls benchmarks
-- OWASP Top 10 vulnerabilities
-- Secure credential storage and handling
-- Tenant data isolation (multi-tenant SaaS)
-
-NON-NEGOTIABLE: Security over convenience. Always.
-Rate findings: CRITICAL (blocks deploy) / HIGH / MEDIUM / LOW""",
-
-    "code-reviewer": f"""You are the Code Reviewer for {COMPANY_NAME}.
-
-Your focus:
-- Code quality and best practices
-- DRY, SOLID principles
-- Error handling and edge cases
-- Performance considerations
-- Code readability and maintainability
-- Test coverage gaps
-
-Project: {PROJECT_NAME}
-Format: MUST FIX / SHOULD FIX / CONSIDER / NICE TO HAVE""",
-
-    "ux-manager": f"""You are the UX Manager for {COMPANY_NAME}.
-
-Your focus:
-- User flow clarity and efficiency
-- Error message helpfulness
-- Form design and validation feedback
-- UI consistency across the platform
-- Accessibility basics
-- Onboarding experience
-
-Project: {PROJECT_NAME}
-
-BROWSER ACCESS (localhost only):
-You have browser access to review the app UI. Use it to:
-- Take snapshots of pages to analyze layout, spacing, colors
-- Check user flows and navigation
-- Verify form designs and error states
-- Assess overall visual consistency
-
-ALLOWED URLs (localhost only):
-- http://localhost:* (any port)
-- http://127.0.0.1:*
-
-DO NOT navigate to any external URLs. Your browser access is strictly for reviewing the local app."""
-}
 
 async def is_session_alive(session_key: str) -> bool:
     """Check if an OpenClaw session is still active via sessions_list."""
@@ -322,7 +247,7 @@ async def _ws_rpc(method: str, params: dict, timeout: float = 10.0) -> dict:
                 "maxProtocol": 3,
                 "client": {"id": "openclaw-control-ui", "version": "dev", "platform": "linux", "mode": "webchat"},
                 "role": "operator",
-                "scopes": ["operator.admin", "operator.approvals", "operator.pairing"],
+                "scopes": ["operator.admin", "operator.read", "operator.approvals", "operator.pairing"],
                 "auth": {"token": OPENCLAW_TOKEN},
             }
         })
@@ -359,6 +284,27 @@ async def _ws_rpc(method: str, params: dict, timeout: float = 10.0) -> dict:
                 break
     print(f"🔌 WS-RPC: No matching response received")
     return {}
+
+
+async def fetch_agent_identities(agents_data: list) -> None:
+    """Fetch emoji/avatar for each agent via WS-RPC agent.identity.get and update AGENT_META."""
+    if not OPENCLAW_ENABLED:
+        return
+    for agent in agents_data:
+        agent_id = agent["id"]
+        agent_name = agent["name"]
+        if agent_id == "main":
+            agent_name = MAIN_AGENT_NAME
+        try:
+            result = await _ws_rpc("agent.identity.get", {"agentId": agent_id}, timeout=5)
+            payload = result.get("payload", {})
+            if payload:
+                emoji = payload.get("emoji") or payload.get("avatar")
+                if emoji and agent_name in cfg.AGENT_META:
+                    cfg.AGENT_META[agent_name]["icon"] = emoji
+                    print(f"  🎨 {agent_name}: emoji={emoji}")
+        except Exception as e:
+            print(f"  ⚠️ Could not fetch identity for {agent_id}: {e}")
 
 
 async def stop_agent_session(session_key: str) -> bool:
@@ -418,14 +364,13 @@ async def _do_spawn_agent_session(task_id: int, task_title: str, task_descriptio
             print(f"🧹 SPAWN-AGENT: Clearing dead session {existing_key} for task #{task_id}")
             set_task_session(task_id, None)
 
-    agent_id = AGENT_TO_OPENCLAW_ID.get(agent_name)
+    agent_id = cfg.AGENT_TO_OPENCLAW_ID.get(agent_name)
     if not agent_id:
-        print(f"\u26a0\ufe0f  SPAWN-AGENT SKIPPED: Unknown agent '{agent_name}' (not in AGENT_TO_OPENCLAW_ID)")
+        print(f"\u26a0\ufe0f  SPAWN-AGENT SKIPPED: Unknown agent '{agent_name}' (not in cfg.AGENT_TO_OPENCLAW_ID)")
         return None
 
     print(f"\U0001f50d SPAWN-AGENT: Mapped {agent_name} \u2192 {agent_id}")
 
-    system_prompt = AGENT_SYSTEM_PROMPTS.get(agent_id, "")
     task_prompt = f"""# Task Assignment from RIZQ Task Board (Approved by {HUMAN_SUPERVISOR_LABEL})
 
 **Task #{task_id}:** {task_title}
@@ -434,11 +379,6 @@ async def _do_spawn_agent_session(task_id: int, task_title: str, task_descriptio
 {task_description or 'No description provided.'}
 
 {AGENT_GUARDRAILS}
-
-## Your Role
-{system_prompt}
-
----
 
 ## API Base URL (MANDATORY \u2014 do NOT use localhost or 127.0.0.1)
 All Task Board API calls MUST use this base URL: {TASKBOARD_BASE_URL}
@@ -560,11 +500,9 @@ async def spawn_followup_session(task_id: int, task_title: str, agent_name: str,
 
 
 async def _do_spawn_followup(task_id: int, task_title: str, agent_name: str, previous_context: str, new_message: str):
-    agent_id = AGENT_TO_OPENCLAW_ID.get(agent_name)
+    agent_id = cfg.AGENT_TO_OPENCLAW_ID.get(agent_name)
     if not agent_id:
         return None
-
-    system_prompt = AGENT_SYSTEM_PROMPTS.get(agent_id, "")
 
     followup_prompt = f"""# Follow-up on Task #{task_id}: {task_title}
 
@@ -575,9 +513,6 @@ You previously worked on this task and moved it to Review. User has a follow-up 
 
 ## User's New Message:
 {new_message}
-
-## Your Role:
-{system_prompt}
 
 ## API Base URL (MANDATORY \u2014 do NOT use localhost or 127.0.0.1)
 All Task Board API calls MUST use this base URL: {TASKBOARD_BASE_URL}
@@ -638,11 +573,9 @@ async def spawn_mentioned_agent(task_id: int, task_title: str, task_description:
     if not OPENCLAW_ENABLED:
         return None
 
-    agent_id = AGENT_TO_OPENCLAW_ID.get(mentioned_agent)
+    agent_id = cfg.AGENT_TO_OPENCLAW_ID.get(mentioned_agent)
     if not agent_id:
         return None
-
-    system_prompt = AGENT_SYSTEM_PROMPTS.get(agent_id, "")
 
     mention_prompt = f"""# You've Been Tagged: Task #{task_id}
 
@@ -656,9 +589,6 @@ async def spawn_mentioned_agent(task_id: int, task_title: str, task_description:
 
 ## Previous Conversation:
 {previous_context if previous_context else "(No prior comments)"}
-
-## Your Role:
-{system_prompt}
 
 ## Instructions:
 1. Call start-work API: POST {TASKBOARD_BASE_URL}/api/tasks/{task_id}/start-work?agent={mentioned_agent}

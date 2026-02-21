@@ -7,7 +7,7 @@ import logging
 from datetime import datetime
 from fastapi import APIRouter
 
-from app.config import OPENCLAW_ENABLED, OPENCLAW_GATEWAY_URL, OPENCLAW_TOKEN
+from app.config import OPENCLAW_ENABLED, OPENCLAW_GATEWAY_URL, OPENCLAW_TOKEN, MAIN_AGENT_NAME, MAIN_AGENT_EMOJI
 from app.database import get_db_write
 from app.models import SessionCreate
 from app.websocket import manager
@@ -48,7 +48,7 @@ async def list_sessions():
                         session_label = s.get("label", "")
                         display = s.get("displayName", key)
                         if key == "main" or key == "agent:main:main":
-                            label = "\U0001f6e1\ufe0f Jarvis (Main)"
+                            label = f"{MAIN_AGENT_EMOJI} {MAIN_AGENT_NAME} (Main)"
                         elif session_label:
                             label = f"\U0001f916 {session_label}"
                         elif "subagent" in key:

@@ -7,8 +7,8 @@ from typing import List
 from datetime import datetime
 from fastapi import APIRouter, HTTPException
 
+import app.config as cfg
 from app.config import (
-    AGENTS, AGENT_META, AGENT_TO_OPENCLAW_ID,
     STATUSES, PRIORITIES,
     MAIN_AGENT_NAME, MAIN_AGENT_EMOJI, HUMAN_NAME, HUMAN_SUPERVISOR_LABEL, BOARD_TITLE,
     AUTO_STOP_ON_DONE,
@@ -32,8 +32,8 @@ def get_config():
     with get_db() as conn:
         projects = [dict(row) for row in conn.execute("SELECT * FROM projects ORDER BY id").fetchall()]
     return {
-        "agents": AGENTS,
-        "agentMeta": AGENT_META,
+        "agents": cfg.AGENTS,
+        "agentMeta": cfg.AGENT_META,
         "statuses": STATUSES,
         "priorities": PRIORITIES,
         "projects": projects,
@@ -238,7 +238,7 @@ async def start_work(task_id: int, agent: str):
 
     # Spawn agent if no session exists yet (Play button or manual start-work).
     # If agent was already spawned (e.g. via /move), existing session prevents double-spawn.
-    if agent in AGENT_TO_OPENCLAW_ID and agent != "User":
+    if agent in cfg.AGENT_TO_OPENCLAW_ID and agent != "User":
         existing_session = get_task_session(task_id)
         if not existing_session:
             print(f"🚀 START-WORK: Spawning {agent} for task #{task_id}")
@@ -390,7 +390,7 @@ async def move_task(task_id: int, status: str = None, agent: str = None, reason:
 
     if status == "In Progress" and old_status != "In Progress":
         assigned_agent = result.get("agent", "Unassigned")
-        if assigned_agent in AGENT_TO_OPENCLAW_ID and assigned_agent != "User":
+        if assigned_agent in cfg.AGENT_TO_OPENCLAW_ID and assigned_agent != "User":
             print(f"🚀 MOVE-TASK: Task #{task_id} moved to In Progress — auto-spawning {assigned_agent}")
             await spawn_agent_session(task_id, result.get("title", ""), result.get("description", ""), assigned_agent)
 

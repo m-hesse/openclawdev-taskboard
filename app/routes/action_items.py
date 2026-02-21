@@ -6,6 +6,7 @@ import logging
 from datetime import datetime
 from fastapi import APIRouter, HTTPException
 
+from app.config import OPENCLAW_ENABLED
 from app.database import get_db, get_db_write
 from app.models import ActionItemCreate
 from app.websocket import manager
@@ -65,6 +66,20 @@ async def resolve_action_item(item_id: int):
         task_id = row["task_id"]
     logger.info(f"Action item #{item_id} resolved on task #{task_id}")
     await manager.broadcast({"type": "action_item_resolved", "task_id": task_id, "item_id": item_id})
+
+    # Notify the running agent about the resolved action item
+    if OPENCLAW_ENABLED:
+        with get_db() as conn:
+            task = conn.execute("SELECT agent_session_key, title FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        if task and task["agent_session_key"]:
+            from app.openclaw import send_to_agent_session
+            item_type = row["item_type"]
+            content = row["content"]
+            msg = f"✅ Action item resolved by supervisor on task \"{task['title']}\":\n[{item_type}] {content}"
+            sent = await send_to_agent_session(task["agent_session_key"], msg)
+            if sent:
+                logger.info(f"Notified agent about resolved action item #{item_id}")
+
     return {"success": True, "item_id": item_id}
 
 

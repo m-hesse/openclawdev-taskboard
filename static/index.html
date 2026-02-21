@@ -85,7 +85,7 @@
             align-items: center;
         }
         
-        /* Command Bar - Jarvis Chat */
+        /* Command Bar - Agent Chat */
         .command-bar {
             flex: 1;
             max-width: 600px;
@@ -156,12 +156,12 @@
             max-height: 95vh;
         }
         
-        .command-bar-expanded.fullsize .jarvis-chat-container {
+        .command-bar-expanded.fullsize .agent-chat-container {
             height: calc(95vh - 60px);
         }
         
-        /* Native Jarvis Chat Styles */
-        .jarvis-chat-container {
+        /* Native Agent Chat Styles */
+        .agent-chat-container {
             display: flex;
             flex-direction: column;
             height: 500px;
@@ -169,7 +169,7 @@
             border-radius: 0 0 12px 12px;
         }
         
-        .jarvis-chat-messages {
+        .agent-chat-messages {
             flex: 1;
             overflow-y: auto;
             padding: 1rem;
@@ -178,7 +178,7 @@
             gap: 0.75rem;
         }
         
-        .jarvis-message {
+        .agent-message {
             padding: 0.75rem 1rem;
             border-radius: 12px;
             max-width: 85%;
@@ -187,21 +187,21 @@
             word-wrap: break-word;
         }
         
-        .jarvis-message.user {
+        .agent-message.user {
             background: rgba(34, 197, 94, 0.15);
             border: 1px solid rgba(34, 197, 94, 0.3);
             align-self: flex-end;
             margin-left: 15%;
         }
         
-        .jarvis-message.assistant {
+        .agent-message.assistant {
             background: rgba(99, 102, 241, 0.15);
             border: 1px solid rgba(99, 102, 241, 0.3);
             align-self: flex-start;
             margin-right: 15%;
         }
         
-        .jarvis-message .msg-header {
+        .agent-message .msg-header {
             display: flex;
             justify-content: space-between;
             font-size: 0.75rem;
@@ -209,75 +209,75 @@
             margin-bottom: 0.25rem;
         }
         
-        .jarvis-message .msg-content {
+        .agent-message .msg-content {
             line-height: 1.6;
         }
         
         /* Markdown styling for command bar chat */
-        .jarvis-message .msg-content p {
+        .agent-message .msg-content p {
             margin: 0 0 0.5rem 0;
         }
-        .jarvis-message .msg-content p:last-child {
+        .agent-message .msg-content p:last-child {
             margin-bottom: 0;
         }
-        .jarvis-message .msg-content ul,
-        .jarvis-message .msg-content ol {
+        .agent-message .msg-content ul,
+        .agent-message .msg-content ol {
             margin: 0.5rem 0;
             padding-left: 1.5rem;
         }
-        .jarvis-message .msg-content li {
+        .agent-message .msg-content li {
             margin: 0.25rem 0;
         }
-        .jarvis-message .msg-content code {
+        .agent-message .msg-content code {
             background: var(--bg-dark);
             padding: 0.15rem 0.4rem;
             border-radius: 4px;
             font-size: 0.85em;
             font-family: 'Monaco', 'Menlo', monospace;
         }
-        .jarvis-message .msg-content pre {
+        .agent-message .msg-content pre {
             background: var(--bg-dark);
             padding: 0.75rem 1rem;
             border-radius: 6px;
             overflow-x: auto;
             margin: 0.5rem 0;
         }
-        .jarvis-message .msg-content pre code {
+        .agent-message .msg-content pre code {
             background: none;
             padding: 0;
         }
-        .jarvis-message .msg-content blockquote {
+        .agent-message .msg-content blockquote {
             border-left: 3px solid var(--accent);
             margin: 0.5rem 0;
             padding-left: 1rem;
             color: var(--text-muted);
         }
-        .jarvis-message .msg-content h1,
-        .jarvis-message .msg-content h2,
-        .jarvis-message .msg-content h3 {
+        .agent-message .msg-content h1,
+        .agent-message .msg-content h2,
+        .agent-message .msg-content h3 {
             margin: 0.75rem 0 0.5rem 0;
             font-weight: 600;
         }
-        .jarvis-message .msg-content h1 { font-size: 1.2em; }
-        .jarvis-message .msg-content h2 { font-size: 1.1em; }
-        .jarvis-message .msg-content h3 { font-size: 1em; }
-        .jarvis-message .msg-content strong {
+        .agent-message .msg-content h1 { font-size: 1.2em; }
+        .agent-message .msg-content h2 { font-size: 1.1em; }
+        .agent-message .msg-content h3 { font-size: 1em; }
+        .agent-message .msg-content strong {
             font-weight: 600;
         }
-        .jarvis-message .msg-content a {
+        .agent-message .msg-content a {
             color: var(--accent);
             text-decoration: none;
         }
-        .jarvis-message .msg-content a:hover {
+        .agent-message .msg-content a:hover {
             text-decoration: underline;
         }
         
-        .jarvis-chat-input-area {
+        .agent-chat-input-area {
             padding: 0.75rem 1rem 1rem;
             border-top: 1px solid var(--border);
         }
         
-        .jarvis-typing-indicator {
+        .agent-typing-indicator {
             display: flex;
             align-items: center;
             gap: 0.5rem;
@@ -302,13 +302,13 @@
             30% { opacity: 1; transform: scale(1.2); }
         }
         
-        .jarvis-input-row {
+        .agent-input-row {
             display: flex;
             gap: 0.5rem;
             align-items: flex-end;
         }
         
-        .jarvis-chat-input {
+        .agent-chat-input {
             flex: 1;
             padding: 0.625rem 1rem;
             border: 1px solid var(--border);
@@ -327,25 +327,25 @@
             scrollbar-color: var(--border) transparent;
         }
         
-        .jarvis-chat-input::-webkit-scrollbar {
+        .agent-chat-input::-webkit-scrollbar {
             width: 6px;
         }
         
-        .jarvis-chat-input::-webkit-scrollbar-track {
+        .agent-chat-input::-webkit-scrollbar-track {
             background: transparent;
         }
         
-        .jarvis-chat-input::-webkit-scrollbar-thumb {
+        .agent-chat-input::-webkit-scrollbar-thumb {
             background: var(--border);
             border-radius: 3px;
         }
         
-        .jarvis-chat-input:focus {
+        .agent-chat-input:focus {
             outline: none;
             border-color: var(--accent);
         }
         
-        .jarvis-send-btn {
+        .agent-send-btn {
             height: 44px;
             min-width: 44px;
             padding: 0 1rem;
@@ -361,11 +361,11 @@
             justify-content: center;
         }
         
-        .jarvis-send-btn:hover {
+        .agent-send-btn:hover {
             background: #5855eb;
         }
         
-        .jarvis-send-btn:disabled {
+        .agent-send-btn:disabled {
             opacity: 0.5;
             cursor: not-allowed;
         }
@@ -393,7 +393,7 @@
             align-self: flex-end;
         }
         
-        .command-chat-message.from-Jarvis {
+        .command-chat-message.from-assistant {
             background: rgba(99, 102, 241, 0.15);
             border-left: 3px solid #6366f1;
             align-self: flex-start;
@@ -2081,29 +2081,9 @@
             border-left: 3px solid var(--border);
         }
         
-        .chat-message.from-jarvis {
+        .chat-message.from-assistant {
             background: rgba(99, 102, 241, 0.15);
             border-left: 3px solid #6366f1;
-        }
-        
-        .chat-message.from-architect {
-            background: rgba(168, 85, 247, 0.15);
-            border-left: 3px solid #a855f7;
-        }
-        
-        .chat-message.from-security-auditor {
-            background: rgba(239, 68, 68, 0.15);
-            border-left: 3px solid #ef4444;
-        }
-        
-        .chat-message.from-code-reviewer {
-            background: rgba(34, 197, 94, 0.15);
-            border-left: 3px solid #22c55e;
-        }
-        
-        .chat-message.from-ux-manager {
-            background: rgba(236, 72, 153, 0.15);
-            border-left: 3px solid #ec4899;
         }
         
         .chat-message.from-system {
@@ -2137,11 +2117,6 @@
             color: var(--accent);
         }
         
-        .chat-message.from-jarvis .chat-message-header .agent { color: #6366f1; }
-        .chat-message.from-architect .chat-message-header .agent { color: #a855f7; }
-        .chat-message.from-security-auditor .chat-message-header .agent { color: #ef4444; }
-        .chat-message.from-code-reviewer .chat-message-header .agent { color: #22c55e; }
-        .chat-message.from-ux-manager .chat-message-header .agent { color: #ec4899; }
         .chat-message.from-system .chat-message-header .agent { color: #64748b; }
         
         .chat-message-header .time {
@@ -2205,7 +2180,7 @@
         }
         
         /* Command bar chat message structure */
-        .jarvis-message {
+        .agent-message {
             display: flex;
             align-items: flex-start;
             gap: 0.5rem;
@@ -2228,18 +2203,18 @@
             accent-color: var(--accent);
         }
         
-        .jarvis-message-body {
+        .agent-message-body {
             flex: 1;
             min-width: 0;
         }
         
-        .jarvis-message .msg-header {
+        .agent-message .msg-header {
             display: flex;
             align-items: center;
             gap: 0.5rem;
         }
         
-        .jarvis-message .msg-actions {
+        .agent-message .msg-actions {
             display: flex;
             gap: 0.25rem;
         }
@@ -2837,10 +2812,10 @@
         <div class="command-bar" id="commandBar" onclick="expandCommandBar()">
             <div class="command-bar-collapsed" id="commandBarCollapsed">
                 <span class="command-bar-icon" id="commandBarIcon">🛡️</span>
-                <span class="thinking-indicator-collapsed" id="jarvisThinkingCollapsed" style="display: none;" title="Jarvis is thinking...">
+                <span class="thinking-indicator-collapsed" id="agentThinkingCollapsed" style="display: none;" title="Agent is thinking...">
                     <span class="thinking-pulse"></span>
                 </span>
-                <span class="command-bar-preview" id="commandBarPreview">Ask Jarvis anything...</span>
+                <span class="command-bar-preview" id="commandBarPreview">Ask Agent anything...</span>
                 <button class="stop-icon-btn" id="stopAllBtn" onclick="event.stopPropagation(); stopAllAgents()" title="Stop all agents">■</button>
             </div>
             <div class="command-bar-expanded" id="commandBarExpanded">
@@ -2848,39 +2823,39 @@
                     <div class="command-header-title">
                         <div class="session-selector-wrapper">
                             <select id="sessionSelector" class="session-selector" onchange="switchSession(this.value)" onclick="event.stopPropagation()">
-                                <option value="main">Jarvis (Main)</option>
+                                <option value="main">Agent (Main)</option>
                             </select>
                             <button class="session-action-btn danger" id="deleteSessionBtn" onclick="event.stopPropagation(); deleteCurrentSession()" title="Close this session">×</button>
                         </div>
                         <button class="new-session-btn" onclick="event.stopPropagation(); createNewSession()" title="New session">+ New</button>
                     </div>
                     <div style="display: flex; gap: 0.5rem; align-items: center;">
-                        <span class="thinking-indicator" id="jarvisThinking" style="display: none;"><span class="ai-working-dot"></span><span class="ai-working-icon">🛡️</span></span>
+                        <span class="thinking-indicator" id="agentThinking" style="display: none;"><span class="ai-working-dot"></span><span class="ai-working-icon">🛡️</span></span>
                         <button class="stop-btn" id="stopSessionBtn" onclick="event.stopPropagation(); stopCurrentSession()" title="Stop this session">■</button>
                         <button class="command-action-btn" onclick="event.stopPropagation(); toggleCommandBarExportMode()" title="Export to MD">📥</button>
                         <button class="command-expand-btn" onclick="event.stopPropagation(); toggleCommandFullsize()" title="Fullscreen" id="commandExpandBtn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><polyline points="21 3 14 10"/><polyline points="3 21 10 14"/></svg></button>
                         <button class="command-close-btn" onclick="event.stopPropagation(); collapseCommandBar()">×</button>
                     </div>
                 </div>
-                <!-- Native Jarvis Chat - v1.8 -->
-                <div class="jarvis-chat-container" id="jarvisChatContainer">
-                    <div class="jarvis-chat-messages" id="jarvisChatMessages">
+                <!-- Native Agent Chat - v1.8 -->
+                <div class="agent-chat-container" id="agentChatContainer">
+                    <div class="agent-chat-messages" id="agentChatMessages">
                         <!-- Messages rendered here -->
                     </div>
-                    <div class="jarvis-chat-input-area">
+                    <div class="agent-chat-input-area">
                         <div class="command-paste-preview" id="commandPastePreview"></div>
-                        <div class="jarvis-input-row">
+                        <div class="agent-input-row">
                             <button class="attach-btn" onclick="document.getElementById('commandFileInput').click()" title="Attach file">📎</button>
                             <input type="file" id="commandFileInput" class="file-input" accept="image/*,.pdf,.txt,.md,.json,.csv" onchange="handleCommandFileSelect(event)" multiple>
                             <textarea 
-                                id="jarvisChatInput" 
-                                class="jarvis-chat-input" 
+                                id="agentChatInput" 
+                                class="agent-chat-input" 
                                 placeholder="Ctrl+V to paste images · Shift+Enter for new line"
                                 rows="1"
-                                onkeydown="if(event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); sendJarvisMessage(); }"
+                                onkeydown="if(event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); sendChatMessage(); }"
                                 oninput="this.style.height = 'auto'; this.style.height = Math.min(this.scrollHeight, 150) + 'px';"
                             ></textarea>
-                            <button class="jarvis-send-btn" onclick="sendJarvisMessage()" id="jarvisSendBtn">
+                            <button class="agent-send-btn" onclick="sendChatMessage()" id="agentSendBtn">
                                 <span>→</span>
                             </button>
                         </div>
@@ -2983,7 +2958,7 @@
     </div>
     
     <!-- Task Modal -->
-    <div class="modal-overlay" id="taskModal">
+    <div class="modal-overlay" id="taskModal" onclick="if(event.target===this){autoSaveTaskField();closeModal()}">
         <div class="modal" id="modalContainer">
             <div class="modal-header">
                 <input type="text" id="taskTitleInput" class="modal-title-input" required placeholder="Task title..." form="taskForm">
@@ -3207,7 +3182,7 @@
             setupCommandPasteHandler();
             // Pre-load sessions and chat history so it's ready when command bar opens
             loadSessions();
-            loadJarvisHistory('main');
+            loadChatHistory('main');
         }
         
         function applyBranding() {
@@ -3225,7 +3200,7 @@
             const preview = document.getElementById('commandBarPreview');
             if (preview) preview.textContent = `Ask ${mainAgent} anything...`;
             
-            const chatInput = document.getElementById('jarvisChatInput');
+            const chatInput = document.getElementById('agentChatInput');
             if (chatInput) chatInput.placeholder = `Ctrl+V to paste images · Shift+Enter for new line`;
             
             // Update typing indicator
@@ -4871,8 +4846,8 @@
                 preview.style.opacity = '0.7';
             }
             // Also show glowing shield in expanded header (reuse thinking indicator)
-            const thinking = document.getElementById('jarvisThinking');
-            const thinkingCollapsed = document.getElementById('jarvisThinkingCollapsed');
+            const thinking = document.getElementById('agentThinking');
+            const thinkingCollapsed = document.getElementById('agentThinkingCollapsed');
             if (thinking) {
                 thinking.style.display = 'inline';
                 thinking.title = 'Reconnecting...';
@@ -4892,14 +4867,14 @@
                 preview.style.opacity = '1';
                 delete preview.dataset.originalText;
             }
-            // Hide the glowing shield (unless jarvisLoading is true)
-            const thinking = document.getElementById('jarvisThinking');
-            const thinkingCollapsed = document.getElementById('jarvisThinkingCollapsed');
-            if (thinking && !jarvisLoading) {
+            // Hide the glowing shield (unless chatLoading is true)
+            const thinking = document.getElementById('agentThinking');
+            const thinkingCollapsed = document.getElementById('agentThinkingCollapsed');
+            if (thinking && !chatLoading) {
                 thinking.style.display = 'none';
                 thinking.title = '';
             }
-            if (thinkingCollapsed && !jarvisLoading) {
+            if (thinkingCollapsed && !chatLoading) {
                 thinkingCollapsed.style.display = 'none';
                 thinkingCollapsed.title = '';
             }
@@ -5022,13 +4997,13 @@
                     // Remove deleted session from local state immediately
                     const deletedKey = data.session_key;
                     activeSessions = activeSessions.filter(s => s.key !== deletedKey);
-                    delete jarvisHistoryBySession[deletedKey];
+                    delete chatHistoryBySession[deletedKey];
                     
                     // If we're viewing the deleted session, switch to main
                     if (currentSessionKey === deletedKey) {
                         currentSessionKey = 'main';
-                        jarvisChatHistory = jarvisHistoryBySession['main'] || [];
-                        renderJarvisChat();
+                        chatHistory = chatHistoryBySession['main'] || [];
+                        renderChat();
                     }
                     
                     updateSessionSelector();
@@ -5037,8 +5012,8 @@
                 }
                 
                 if (data.type === 'command_bar_message') {
-                    // Proactive Jarvis message via WebSocket
-                    handleJarvisWebSocketMessage(data.message);
+                    // Proactive Agent message via WebSocket
+                    handleChatWebSocketMessage(data.message);
                 }
             };
             
@@ -5057,22 +5032,22 @@
             };
         }
         
-        // Command Bar - Jarvis Chat (via Backend API)
+        // Command Bar - Agent Chat (via Backend API)
         let commandBarExpanded = false;
         let commandFullsize = false;
-        let jarvisChatHistory = [];
-        let jarvisHistoryBySession = {}; // session_key -> messages[]
-        let lastJarvisMessage = 'Ask anything...';  // Updated by applyBranding()
-        let jarvisLoading = false;
+        let chatHistory = [];
+        let chatHistoryBySession = {}; // session_key -> messages[]
+        let lastChatMessage = 'Ask anything...';  // Updated by applyBranding()
+        let chatLoading = false;
         let commandAttachments = []; // {type, data, filename}
         let activeSessions = [];
         let currentSessionKey = 'main';
         
         // Load chat history from backend for a specific session
-        async function loadJarvisHistory(sessionKey = null) {
+        async function loadChatHistory(sessionKey = null) {
             const session = sessionKey || currentSessionKey;
             try {
-                const res = await fetch(`/api/jarvis/history?session=${encodeURIComponent(session)}`);
+                const res = await fetch(`/api/chat/history?session=${encodeURIComponent(session)}`);
                 if (res.ok) {
                     const data = await res.json();
                     const messages = (data.history || []).map(msg => ({
@@ -5085,16 +5060,16 @@
                     }));
                     
                     // Cache history per session
-                    jarvisHistoryBySession[session] = messages;
+                    chatHistoryBySession[session] = messages;
                     
                     // If this is the current session, update display
                     if (session === currentSessionKey) {
-                        jarvisChatHistory = messages;
-                        renderJarvisChat();
+                        chatHistory = messages;
+                        renderChat();
                         // Update preview from last assistant message
-                        const lastAssistant = [...jarvisChatHistory].reverse().find(m => m.role === 'assistant');
+                        const lastAssistant = [...chatHistory].reverse().find(m => m.role === 'assistant');
                         if (lastAssistant) {
-                            lastJarvisMessage = lastAssistant.content.length > 60 
+                            lastChatMessage = lastAssistant.content.length > 60 
                                 ? lastAssistant.content.substring(0, 60) + '...' 
                                 : lastAssistant.content;
                             updateCommandBarPreview();
@@ -5102,7 +5077,7 @@
                     }
                 }
             } catch (e) {
-                console.error('Failed to load Jarvis history:', e);
+                console.error('Failed to load Agent history:', e);
             }
         }
         
@@ -5134,7 +5109,7 @@
             
             // Fallback if no sessions (shouldn't happen)
             if (!options) {
-                options = '<option value="main">Jarvis (Main)</option>';
+                options = '<option value="main">Agent (Main)</option>';
             }
             
             selector.innerHTML = options;
@@ -5154,14 +5129,14 @@
             updateDeleteButtonVisibility();
             
             // Check if we have cached history for this session
-            if (jarvisHistoryBySession[sessionKey]) {
-                jarvisChatHistory = jarvisHistoryBySession[sessionKey];
-                renderJarvisChat();
+            if (chatHistoryBySession[sessionKey]) {
+                chatHistory = chatHistoryBySession[sessionKey];
+                renderChat();
             } else {
                 // Load from server
-                jarvisChatHistory = [];
-                renderJarvisChat();
-                await loadJarvisHistory(sessionKey);
+                chatHistory = [];
+                renderChat();
+                await loadChatHistory(sessionKey);
             }
         }
         
@@ -5208,7 +5183,7 @@
                             currentSessionKey = newKey;
                             document.getElementById('sessionSelector').value = newKey;
                             updateDeleteButtonVisibility();
-                            await loadJarvisHistory(newKey);
+                            await loadChatHistory(newKey);
                         }
                     } else {
                         showConfirmModal('? Error', 'Failed to create session: ' + (data.error || 'Unknown error'), 'OK', () => {});
@@ -5258,7 +5233,7 @@
                             btn.style.borderColor = 'var(--low)';
                             
                             // Clear cached history for this session
-                            delete jarvisHistoryBySession[currentSessionKey];
+                            delete chatHistoryBySession[currentSessionKey];
                             
                             // Switch back to first available session
                             await loadSessions();
@@ -5271,7 +5246,7 @@
                             }
                             
                             updateDeleteButtonVisibility();
-                            await loadJarvisHistory(currentSessionKey);
+                            await loadChatHistory(currentSessionKey);
                             
                             setTimeout(() => {
                                 btn.style.background = '';
@@ -5487,7 +5462,7 @@
         
         // Command bar paste handler
         function setupCommandPasteHandler() {
-            const input = document.getElementById('jarvisChatInput');
+            const input = document.getElementById('agentChatInput');
             if (input) {
                 input.addEventListener('paste', handleCommandPaste);
             }
@@ -5573,14 +5548,14 @@
             renderCommandAttachments();
         }
         
-        // Send message to Jarvis via backend
+        // Send message to Agent via backend
         let pendingMessageId = null; // Track message we're waiting on to avoid WS duplicates
         
-        async function sendJarvisMessage() {
-            const input = document.getElementById('jarvisChatInput');
+        async function sendChatMessage() {
+            const input = document.getElementById('agentChatInput');
             let message = input.value.trim();
             if (!message && commandAttachments.length === 0) return;
-            if (jarvisLoading) return;
+            if (chatLoading) return;
             
             // If replying to a message, prepend the quote
             if (commandBarReplyingTo) {
@@ -5605,15 +5580,15 @@
                 time: formatTimeNow(),
                 _optimistic: true // Mark as optimistic for later replacement
             };
-            jarvisChatHistory.push(optimisticMsg);
-            jarvisHistoryBySession[currentSessionKey] = jarvisChatHistory;
-            renderJarvisChat();
+            chatHistory.push(optimisticMsg);
+            chatHistoryBySession[currentSessionKey] = chatHistory;
+            renderChat();
             
             // Show typing indicator (both expanded and collapsed)
-            jarvisLoading = true;
-            document.getElementById('jarvisThinking').style.display = 'inline';
-            document.getElementById('jarvisThinkingCollapsed').style.display = 'inline-flex';
-            document.getElementById('jarvisSendBtn').disabled = true;
+            chatLoading = true;
+            document.getElementById('agentThinking').style.display = 'inline';
+            document.getElementById('agentThinkingCollapsed').style.display = 'inline-flex';
+            document.getElementById('agentSendBtn').disabled = true;
             
             try {
                 const payload = { 
@@ -5629,7 +5604,7 @@
                 const maxRetries = 3;
                 for (let attempt = 1; attempt <= maxRetries; attempt++) {
                     try {
-                        res = await fetch('/api/jarvis/chat', {
+                        res = await fetch('/api/chat/send', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify(payload)
@@ -5638,7 +5613,7 @@
                         break; // Success, exit retry loop
                     } catch (fetchErr) {
                         if (attempt < maxRetries) {
-                            console.log(`Jarvis fetch attempt ${attempt} failed, retrying in ${attempt}s...`);
+                            console.log(`Agent fetch attempt ${attempt} failed, retrying in ${attempt}s...`);
                             await new Promise(r => setTimeout(r, attempt * 1000));
                         } else {
                             throw fetchErr; // Final attempt failed
@@ -5648,37 +5623,37 @@
                 
                 // Reload history from server to get the new messages with proper IDs
                 // This will replace the optimistic message with the real one
-                await loadJarvisHistory(currentSessionKey);
+                await loadChatHistory(currentSessionKey);
                 
                 if (data.response) {
-                    lastJarvisMessage = data.response.length > 60 
+                    lastChatMessage = data.response.length > 60 
                         ? data.response.substring(0, 60) + '...' 
                         : data.response;
                     updateCommandBarPreview();
                 } else if (data.error) {
                     // Show error inline
-                    jarvisChatHistory.push({ role: 'assistant', content: `Error: ${data.error}`, time: formatTimeNow() });
-                    renderJarvisChat();
+                    chatHistory.push({ role: 'assistant', content: `Error: ${data.error}`, time: formatTimeNow() });
+                    renderChat();
                 }
             } catch (e) {
-                console.error('Jarvis chat error:', e);
+                console.error('Agent chat error:', e);
                 // If we're reconnecting, show a gentler message
                 if (wsReconnecting || !wsConnected) {
-                    jarvisChatHistory.push({ 
+                    chatHistory.push({ 
                         role: 'assistant', 
                         content: '🔄 Connection interrupted. Your message will be sent when reconnected. Please wait...', 
                         time: formatTimeNow(),
                         _pending: true
                     });
                 } else {
-                    jarvisChatHistory.push({ role: 'assistant', content: 'Failed to reach Jarvis. Is OpenClaw running?', time: formatTimeNow() });
+                    chatHistory.push({ role: 'assistant', content: 'Failed to reach Agent. Is OpenClaw running?', time: formatTimeNow() });
                 }
-                renderJarvisChat();
+                renderChat();
             } finally {
-                jarvisLoading = false;
-                document.getElementById('jarvisThinking').style.display = 'none';
-                document.getElementById('jarvisThinkingCollapsed').style.display = 'none';
-                document.getElementById('jarvisSendBtn').disabled = false;
+                chatLoading = false;
+                document.getElementById('agentThinking').style.display = 'none';
+                document.getElementById('agentThinkingCollapsed').style.display = 'none';
+                document.getElementById('agentSendBtn').disabled = false;
             }
         }
         
@@ -5686,16 +5661,16 @@
         let commandBarReplyingTo = null;
         let commandBarExportMode = false;
         
-        function renderJarvisChat() {
-            const container = document.getElementById('jarvisChatMessages');
+        function renderChat() {
+            const container = document.getElementById('agentChatMessages');
             const b = window.BRANDING || {};
             const mainAgentName = b.mainAgentName || 'Assistant';
             const mainAgentEmoji = b.mainAgentEmoji || '🤖';
             
-            if (jarvisChatHistory.length === 0) {
+            if (chatHistory.length === 0) {
                 container.innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 2rem;">Chat with ${mainAgentName} directly from the task board.</div>`;
             } else {
-                container.innerHTML = jarvisChatHistory.map((msg, idx) => {
+                container.innerHTML = chatHistory.map((msg, idx) => {
                     const isUser = msg.role === 'user';
                     const icon = isUser ? '👤' : mainAgentEmoji;
                     const name = isUser ? 'You' : mainAgentName;
@@ -5716,11 +5691,11 @@
                     const preview = (msg.content || '').substring(0, 80).replace(/'/g, "\\'");
                     
                     return `
-                    <div class="jarvis-message ${msg.role}" data-msg-idx="${idx}">
+                    <div class="agent-message ${msg.role}" data-msg-idx="${idx}">
                         <div class="command-export-checkbox-col">
                             <input type="checkbox" class="command-export-checkbox" data-msg-idx="${idx}">
                         </div>
-                        <div class="jarvis-message-body">
+                        <div class="agent-message-body">
                             <div class="msg-header">
                                 <span>${icon} ${name}${msg.time ? '  -  ' + msg.time : ''}</span>
                                 <span class="msg-actions" style="margin-left:auto;">
@@ -5740,9 +5715,9 @@
         function replyToCommandBarMessage(name, preview) {
             commandBarReplyingTo = { name, preview };
             
-            const inputArea = document.querySelector('.jarvis-chat-input-area');
+            const inputArea = document.querySelector('.agent-chat-input-area');
             if (!inputArea) {
-                console.warn('jarvis-chat-input-area not found');
+                console.warn('agent-chat-input-area not found');
                 return;
             }
             let replyPreview = inputArea.querySelector('.reply-preview');
@@ -5755,19 +5730,19 @@
                 <span class="reply-preview-text">↩ Replying to <strong>${name}</strong>: ${preview}</span>
                 <button class="reply-preview-close" onclick="clearCommandBarReply()">×</button>
             `;
-            document.getElementById('jarvisChatInput')?.focus();
+            document.getElementById('agentChatInput')?.focus();
         }
         
         function clearCommandBarReply() {
             commandBarReplyingTo = null;
-            const replyPreview = document.querySelector('.jarvis-chat-input-area .reply-preview');
+            const replyPreview = document.querySelector('.agent-chat-input-area .reply-preview');
             if (replyPreview) replyPreview.remove();
         }
         
         // Event delegation for command bar chat buttons (handles special chars in content)
         document.addEventListener('click', function(e) {
-            const msgEl = e.target.closest('.jarvis-message');
-            if (!msgEl || !msgEl.closest('#jarvisChatMessages')) return;
+            const msgEl = e.target.closest('.agent-message');
+            if (!msgEl || !msgEl.closest('#agentChatMessages')) return;
             
             const idx = parseInt(msgEl.dataset.msgIdx);
             
@@ -5777,7 +5752,7 @@
                 e.stopPropagation();
                 const btn = e.target.closest('.cmd-reply-btn');
                 const name = btn.dataset.name;
-                const content = jarvisChatHistory[idx]?.content || '';
+                const content = chatHistory[idx]?.content || '';
                 const preview = content.substring(0, 80);
                 replyToCommandBarMessage(name, preview + '...');
                 return;
@@ -5801,13 +5776,13 @@
         });
         
         function copyCommandBarMessage(idx) {
-            const content = jarvisChatHistory[idx]?.content || '';
+            const content = chatHistory[idx]?.content || '';
             if (!content) {
                 console.warn('No content to copy');
                 return;
             }
             
-            const btn = document.querySelector(`.jarvis-message[data-msg-idx="${idx}"] .msg-action-btn[title="Copy"]`);
+            const btn = document.querySelector(`.agent-message[data-msg-idx="${idx}"] .msg-action-btn[title="Copy"]`);
             
             // Modern clipboard API with fallback
             if (navigator.clipboard && window.isSecureContext) {
@@ -5826,20 +5801,20 @@
             if (!confirm('Delete this message? This cannot be undone.')) return;
             
             // Remove from history array
-            jarvisChatHistory.splice(idx, 1);
+            chatHistory.splice(idx, 1);
             
             // Also remove from session-specific history if exists
-            if (currentSessionKey && jarvisHistoryBySession[currentSessionKey]) {
-                jarvisHistoryBySession[currentSessionKey] = [...jarvisChatHistory];
+            if (currentSessionKey && chatHistoryBySession[currentSessionKey]) {
+                chatHistoryBySession[currentSessionKey] = [...chatHistory];
             }
             
             // Re-render the chat
-            renderJarvisChat();
+            renderChat();
         }
         
         function toggleCommandBarExportMode() {
             commandBarExportMode = !commandBarExportMode;
-            const container = document.getElementById('jarvisChatMessages');
+            const container = document.getElementById('agentChatMessages');
             
             if (commandBarExportMode) {
                 container.classList.add('export-mode');
@@ -5882,7 +5857,7 @@
             
             let md = `# Command Bar Chat Export\n\n**Exported:** ${new Date().toLocaleString()}\n\n---\n\n`;
             selected.forEach(idx => {
-                const msg = jarvisChatHistory[idx];
+                const msg = chatHistory[idx];
                 if (msg) {
                     const name = msg.role === 'user' ? 'You' : mainAgentName;
                     md += `### ${name} — ${msg.time || ''}\n\n${msg.content}\n\n---\n\n`;
@@ -5900,25 +5875,25 @@
             toggleCommandBarExportMode();
         }
         
-        // Handle incoming messages from WebSocket (for proactive Jarvis messages)
-        function handleJarvisWebSocketMessage(msg) {
+        // Handle incoming messages from WebSocket (for proactive Agent messages)
+        function handleChatWebSocketMessage(msg) {
             if (msg.content) {
                 const msgSession = msg.session_key || 'main';
                 
                 // If we're actively sending a message to this session, skip WS updates
-                // The REST response + loadJarvisHistory will handle it authoritatively
-                if (jarvisLoading && msgSession === currentSessionKey) {
+                // The REST response + loadChatHistory will handle it authoritatively
+                if (chatLoading && msgSession === currentSessionKey) {
                     console.log('Skipping WS message during active send:', msg.id);
                     return;
                 }
                 
                 // Initialize session history if needed
-                if (!jarvisHistoryBySession[msgSession]) {
-                    jarvisHistoryBySession[msgSession] = [];
+                if (!chatHistoryBySession[msgSession]) {
+                    chatHistoryBySession[msgSession] = [];
                 }
                 
                 // Check for duplicates by ID or content (also check optimistic messages)
-                const sessionHistory = jarvisHistoryBySession[msgSession];
+                const sessionHistory = chatHistoryBySession[msgSession];
                 const isDupe = sessionHistory.some(h => 
                     (msg.id && h.id === msg.id) || 
                     (h._optimistic && h.role === msg.role && h.content === msg.content) ||
@@ -5936,16 +5911,16 @@
                     };
                     
                     // Add to session-specific history
-                    jarvisHistoryBySession[msgSession].push(newMsg);
+                    chatHistoryBySession[msgSession].push(newMsg);
                     
                     // If this is the current session, update display
                     if (msgSession === currentSessionKey) {
-                        jarvisChatHistory.push(newMsg);
+                        chatHistory.push(newMsg);
                         if (msg.role === 'assistant') {
-                            lastJarvisMessage = msg.content.length > 60 ? msg.content.substring(0, 60) + '...' : msg.content;
+                            lastChatMessage = msg.content.length > 60 ? msg.content.substring(0, 60) + '...' : msg.content;
                             updateCommandBarPreview();
                         }
-                        renderJarvisChat();
+                        renderChat();
                     }
                 }
             }
@@ -5961,18 +5936,18 @@
             // Ensure paste handler is attached
             setupCommandPasteHandler();
             
-            document.getElementById('jarvisChatInput').focus();
+            document.getElementById('agentChatInput').focus();
             
             // Load sessions and history
             await loadSessions();
             updateDeleteButtonVisibility(); // Enable/disable edit/delete buttons based on current session
             
-            if (!jarvisHistoryBySession[currentSessionKey] || jarvisHistoryBySession[currentSessionKey].length === 0) {
-                await loadJarvisHistory(currentSessionKey);
+            if (!chatHistoryBySession[currentSessionKey] || chatHistoryBySession[currentSessionKey].length === 0) {
+                await loadChatHistory(currentSessionKey);
             } else {
-                jarvisChatHistory = jarvisHistoryBySession[currentSessionKey];
+                chatHistory = chatHistoryBySession[currentSessionKey];
             }
-            renderJarvisChat();
+            renderChat();
         }
         
         function collapseCommandBar() {
@@ -6007,7 +5982,7 @@
         }
         
         function updateCommandBarPreview() {
-            document.getElementById('commandBarPreview').textContent = lastJarvisMessage;
+            document.getElementById('commandBarPreview').textContent = lastChatMessage;
         }
         
         // Escape key closes command bar

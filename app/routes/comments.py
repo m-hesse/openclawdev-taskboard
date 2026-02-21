@@ -6,7 +6,7 @@ import logging
 from datetime import datetime
 from fastapi import APIRouter, HTTPException
 
-from app.config import AGENT_TO_OPENCLAW_ID, MENTION_PATTERN
+import app.config as cfg
 from app.database import get_db, get_db_write
 from app.models import CommentCreate
 from app.websocket import manager
@@ -77,7 +77,7 @@ async def add_comment(task_id: int, comment: CommentCreate):
         await manager.broadcast({"type": "work_stopped", "task_id": task_id, "agent": working_agent_cleared})
 
     # Check for @mentions
-    mentions = MENTION_PATTERN.findall(comment.content)
+    mentions = cfg.MENTION_PATTERN.findall(comment.content)
     if mentions:
         task_description = ""
         previous_context = ""
@@ -93,12 +93,12 @@ async def add_comment(task_id: int, comment: CommentCreate):
 
         for mentioned_agent in set(mentions):
             matched_agent = None
-            for agent_name in AGENT_TO_OPENCLAW_ID.keys():
+            for agent_name in cfg.AGENT_TO_OPENCLAW_ID.keys():
                 if agent_name.lower() == mentioned_agent.lower():
                     matched_agent = agent_name
                     break
             if matched_agent and matched_agent != comment.agent:
-                agent_id = AGENT_TO_OPENCLAW_ID.get(matched_agent)
+                agent_id = cfg.AGENT_TO_OPENCLAW_ID.get(matched_agent)
                 if agent_id:
                     await spawn_mentioned_agent(
                         task_id=task_id,
@@ -118,7 +118,7 @@ async def add_comment(task_id: int, comment: CommentCreate):
             row = conn.execute("SELECT agent FROM tasks WHERE id = ?", (task_id,)).fetchone()
             assigned_agent = row["agent"] if row else None
 
-        if assigned_agent and assigned_agent in AGENT_TO_OPENCLAW_ID and assigned_agent != "User":
+        if assigned_agent and assigned_agent in cfg.AGENT_TO_OPENCLAW_ID and assigned_agent != "User":
             sent = False
             if agent_session:
                 message = f"💬 **User replied on Task #{task_id}:**\n\n{comment.content}\n\n---\nRespond by posting a comment to the task."
@@ -138,7 +138,7 @@ async def add_comment(task_id: int, comment: CommentCreate):
                     previous_comments = [f"**{r['agent']}:** {r['content'][:500]}" for r in reversed(rows)]
                 context = "\n".join(previous_comments[:-1])
                 await spawn_followup_session(task_id, task_title, assigned_agent, context, comment.content)
-    elif comment.agent not in ["System", "User"] + list(AGENT_TO_OPENCLAW_ID.keys()):
+    elif comment.agent not in ["System", "User"] + list(cfg.AGENT_TO_OPENCLAW_ID.keys()):
         await notify_OPENCLAW(task_id, task_title, comment.agent, comment.content)
 
     return result

@@ -116,7 +116,7 @@ class ImageUpload(BaseModel):
     filename: Optional[str] = "image"
 
 
-class JarvisMessage(BaseModel):
+class ChatMessage(BaseModel):
     message: str
     session: str = "main"
     attachments: Optional[List[dict]] = None
@@ -129,7 +129,7 @@ class JarvisMessage(BaseModel):
         return v
 
 
-class JarvisResponse(BaseModel):
+class ChatResponse(BaseModel):
     response: str
     session: str = "main"
 

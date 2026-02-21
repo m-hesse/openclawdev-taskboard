@@ -1,5 +1,5 @@
 """
-Chat: Jarvis history, chat, respond endpoints + legacy endpoints.
+Chat: command bar history, chat, respond endpoints.
 """
 
 import json
@@ -15,7 +15,7 @@ from app.config import (
     TASKBOARD_API_KEY, DATA_DIR,
 )
 from app.database import get_db, get_db_write
-from app.models import JarvisMessage, JarvisResponse
+from app.models import ChatMessage, ChatResponse
 from app.websocket import manager
 
 logger = logging.getLogger(__name__)
@@ -37,7 +37,7 @@ def verify_api_key(authorization: str = Header(None), x_api_key: str = Header(No
     raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 
-@router.get("/api/jarvis/history")
+@router.get("/api/chat/history")
 def get_chat_history(limit: int = 100, session: str = "main"):
     """Get command bar chat history from database, filtered by session."""
     with get_db() as conn:
@@ -60,9 +60,9 @@ def get_chat_history(limit: int = 100, session: str = "main"):
         return {"history": messages, "session": session}
 
 
-@router.post("/api/jarvis/chat")
-async def chat_with_jarvis(msg: JarvisMessage):
-    """Send a message to Jarvis via sessions_send."""
+@router.post("/api/chat/send")
+async def chat_send(msg: ChatMessage):
+    """Send a message to the main agent via sessions_send."""
     if not OPENCLAW_ENABLED:
         return {"sent": False, "error": "OpenClaw integration not enabled."}
 
@@ -160,13 +160,7 @@ async def chat_with_jarvis(msg: JarvisMessage):
                             "INSERT INTO chat_messages (session_key, role, content, attachments, created_at) VALUES (?, ?, ?, ?, ?)",
                             (session_key, "assistant", assistant_reply, None, now)
                         )
-                        assistant_msg_id = cursor.lastrowid
 
-                    jarvis_msg = {
-                        "id": assistant_msg_id, "session_key": session_key,
-                        "role": "assistant", "content": assistant_reply,
-                        "timestamp": datetime.now().isoformat()
-                    }
                     return {"sent": True, "response": assistant_reply, "session": session_key}
 
                 return {"sent": True, "response": "No response received"}
@@ -174,13 +168,13 @@ async def chat_with_jarvis(msg: JarvisMessage):
                 error_text = response.text[:200] if response.text else f"HTTP {response.status_code}"
                 return {"sent": False, "error": error_text}
     except Exception as e:
-        print(f"Error sending to Jarvis: {e}")
+        print(f"Error sending chat message: {e}")
         return {"sent": False, "error": str(e)}
 
 
-@router.post("/api/jarvis/respond")
-async def jarvis_respond(msg: JarvisResponse, _: bool = Depends(verify_api_key)):
-    """Endpoint for Jarvis to push responses back to the command bar. Requires API key."""
+@router.post("/api/chat/respond")
+async def chat_respond(msg: ChatResponse, _: bool = Depends(verify_api_key)):
+    """Endpoint for agent to push responses back to the command bar. Requires API key."""
     now = datetime.now().isoformat()
     session_key = msg.session or "main"
 
@@ -191,24 +185,33 @@ async def jarvis_respond(msg: JarvisResponse, _: bool = Depends(verify_api_key))
         )
         msg_id = cursor.lastrowid
 
-    logger.info(f"Jarvis response pushed to session {session_key}")
+    logger.info(f"Agent response pushed to session {session_key}")
 
-    jarvis_msg = {
+    agent_msg = {
         "id": msg_id, "session_key": session_key,
         "role": "assistant", "content": msg.response, "timestamp": now
     }
-    await manager.broadcast({"type": "command_bar_message", "message": jarvis_msg})
+    await manager.broadcast({"type": "command_bar_message", "message": agent_msg})
     return {"delivered": True}
 
 
-# Legacy endpoints
-@router.post("/api/molt/chat")
-async def chat_with_molt_legacy(msg: JarvisMessage):
-    """Legacy endpoint - redirects to /api/jarvis/chat."""
-    return await chat_with_jarvis(msg)
+# Legacy endpoints (backward compatibility)
+@router.get("/api/jarvis/history")
+def get_chat_history_legacy(limit: int = 100, session: str = "main"):
+    return get_chat_history(limit, session)
 
+@router.post("/api/jarvis/chat")
+async def chat_send_legacy(msg: ChatMessage):
+    return await chat_send(msg)
+
+@router.post("/api/jarvis/respond")
+async def chat_respond_legacy(msg: ChatResponse, _: bool = Depends(verify_api_key)):
+    return await chat_respond(msg, _)
+
+@router.post("/api/molt/chat")
+async def chat_molt_legacy(msg: ChatMessage):
+    return await chat_send(msg)
 
 @router.post("/api/molt/respond")
-async def jarvis_respond_legacy(msg: JarvisResponse, _: bool = Depends(verify_api_key)):
-    """Legacy endpoint - redirects to /api/jarvis/respond."""
-    return await jarvis_respond(msg, _)
+async def chat_molt_legacy_respond(msg: ChatResponse, _: bool = Depends(verify_api_key)):
+    return await chat_respond(msg, _)

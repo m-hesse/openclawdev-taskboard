@@ -19,6 +19,7 @@ from app.config import (
     AGENT_AUTO_DETECT, AGENTS_ENV,
     _populate_agents_from_openclaw, _build_agents_from_env,
 )
+from app.openclaw import fetch_agent_identities
 from app.database import init_db
 from app.websocket import manager
 from app.routes import api_router
@@ -172,6 +173,7 @@ async def startup():
                     agents_data = details.get("agents", [])
                     if agents_data:
                         _populate_agents_from_openclaw(agents_data)
+                        await fetch_agent_identities(agents_data)
                     else:
                         print("\u26a0\ufe0f OpenClaw returned empty agents list, using fallback")
                 else:

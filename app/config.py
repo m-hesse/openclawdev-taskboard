@@ -20,7 +20,7 @@ ATTACHMENTS_PATH.mkdir(exist_ok=True)
 # =============================================================================
 # BRANDING
 # =============================================================================
-MAIN_AGENT_NAME = os.getenv("MAIN_AGENT_NAME", "Jarvis")
+MAIN_AGENT_NAME = os.getenv("MAIN_AGENT_NAME", "Assistant")
 MAIN_AGENT_EMOJI = os.getenv("MAIN_AGENT_EMOJI", "\U0001F6E1")
 HUMAN_NAME = os.getenv("HUMAN_NAME", "User")
 HUMAN_SUPERVISOR_LABEL = os.getenv("HUMAN_SUPERVISOR_LABEL", "User")
@@ -37,17 +37,9 @@ STATUSES = ["Backlog", "Todo", "In Progress", "Review", "Done", "Blocked"]
 PRIORITIES = ["Critical", "High", "Medium", "Low"]
 
 # =============================================================================
-# AGENT DEFAULTS
+# AGENT COLOR POOL (for agents without a color from OpenClaw)
 # =============================================================================
-AGENT_DEFAULTS = {
-    "main": {"icon": "\U0001f916", "color": "#6366f1", "description": "Main coordinator, handles command bar chat"},
-    "architect": {"icon": "\U0001f3db\ufe0f", "color": "#8b5cf6", "description": "System design, patterns, scalability"},
-    "security-auditor": {"icon": "\U0001f512", "color": "#ef4444", "description": "Compliance, vulnerability detection"},
-    "code-reviewer": {"icon": "\U0001f4cb", "color": "#14b8a6", "description": "Code quality, best practices"},
-    "ux-manager": {"icon": "\U0001f3a8", "color": "#ec4899", "description": "User experience, flows, accessibility"},
-}
-
-_AGENT_COLORS = ["#f59e0b", "#06b6d4", "#84cc16", "#a855f7", "#f43f5e", "#64748b"]
+_AGENT_COLORS = ["#6366f1", "#8b5cf6", "#ef4444", "#14b8a6", "#ec4899", "#f59e0b", "#06b6d4", "#84cc16", "#a855f7", "#f43f5e", "#64748b"]
 
 # Mutable agent state (populated at startup)
 AGENTS: List[str] = []
@@ -85,16 +77,11 @@ def _build_agents_from_env():
             agent_id = entry.strip()
             agent_name = agent_id.replace("-", " ").title()
 
-        defaults = AGENT_DEFAULTS.get(agent_id, {})
         AGENT_TO_OPENCLAW_ID[agent_name] = agent_id
-        if agent_id == "main":
-            icon = MAIN_AGENT_EMOJI
-        else:
-            icon = defaults.get("icon", "🔧")
-        color = defaults.get("color", _AGENT_COLORS[color_idx % len(_AGENT_COLORS)])
-        if agent_id not in AGENT_DEFAULTS:
-            color_idx += 1
-        AGENT_META[agent_name] = {"id": agent_id, "icon": icon, "color": color, "description": defaults.get("description", "")}
+        icon = MAIN_AGENT_EMOJI if agent_id == "main" else "🤖"
+        color = _AGENT_COLORS[color_idx % len(_AGENT_COLORS)]
+        color_idx += 1
+        AGENT_META[agent_name] = {"id": agent_id, "icon": icon, "color": color, "description": ""}
 
     AGENTS = list(AGENT_TO_OPENCLAW_ID.keys()) + ["User", "Unassigned"]
     AGENT_META["User"] = {"id": "user", "icon": "👤", "color": "#22c55e", "description": "Human supervisor"}
@@ -104,27 +91,17 @@ def _build_agents_from_env():
 
 
 def _build_fallback_agents():
-    """Build agent lists from hardcoded defaults (when OpenClaw is unreachable)."""
+    """Minimal fallback when OpenClaw is unreachable — only main agent + User + Unassigned."""
     global AGENTS, AGENT_TO_OPENCLAW_ID, AGENT_META, MENTIONABLE_AGENTS, MENTION_PATTERN
-    AGENT_TO_OPENCLAW_ID = {
-        MAIN_AGENT_NAME: "main",
-        "Architect": "architect",
-        "Security Auditor": "security-auditor",
-        "Code Reviewer": "code-reviewer",
-        "UX Manager": "ux-manager",
+    AGENT_TO_OPENCLAW_ID = {MAIN_AGENT_NAME: "main"}
+    AGENT_META = {
+        MAIN_AGENT_NAME: {"id": "main", "icon": MAIN_AGENT_EMOJI, "color": "#6366f1", "description": "Main coordinator"},
+        "User": {"id": "user", "icon": "\U0001f464", "color": "#22c55e", "description": "Human supervisor"},
+        "Unassigned": {"id": "unassigned", "icon": "\u25cb", "color": "#64748b", "description": "Not yet assigned"},
     }
-    AGENTS = list(AGENT_TO_OPENCLAW_ID.keys()) + ["User", "Unassigned"]
-    AGENT_META = {}
-    for name, agent_id in AGENT_TO_OPENCLAW_ID.items():
-        defaults = AGENT_DEFAULTS.get(agent_id, {})
-        if agent_id == "main":
-            AGENT_META[name] = {"id": agent_id, "icon": MAIN_AGENT_EMOJI, "color": defaults.get("color", "#6366f1"), "description": defaults.get("description", "")}
-        else:
-            AGENT_META[name] = {"id": agent_id, "icon": defaults.get("icon", "\u25cb"), "color": defaults.get("color", "#64748b"), "description": defaults.get("description", "")}
-    AGENT_META["User"] = {"id": "user", "icon": "\U0001f464", "color": "#22c55e", "description": "Human supervisor"}
-    AGENT_META["Unassigned"] = {"id": "unassigned", "icon": "\u25cb", "color": "#64748b", "description": "Not yet assigned"}
+    AGENTS = [MAIN_AGENT_NAME, "User", "Unassigned"]
     _rebuild_mention_pattern()
-    print(f"\u2699\ufe0f AGENTS (fallback): {AGENTS}")
+    print(f"\u2699\ufe0f AGENTS (fallback — connect OpenClaw for full agent list): {AGENTS}")
 
 
 def _populate_agents_from_openclaw(agents_data: list):
@@ -137,20 +114,16 @@ def _populate_agents_from_openclaw(agents_data: list):
     for agent in agents_data:
         agent_id = agent["id"]
         agent_name = agent["name"]
-        defaults = AGENT_DEFAULTS.get(agent_id, {})
 
         if agent_id == "main":
-            agent_name = MAIN_AGENT_NAME if MAIN_AGENT_NAME != "Jarvis" else agent["name"]
+            agent_name = MAIN_AGENT_NAME
             icon = MAIN_AGENT_EMOJI
         else:
-            icon = defaults.get("icon", "\U0001f527")
+            icon = agent.get("icon", "🤖")
 
-        color = defaults.get("color")
-        if not color:
-            color = _AGENT_COLORS[color_idx % len(_AGENT_COLORS)]
-            color_idx += 1
-
-        description = defaults.get("description", f"{agent_name} agent")
+        color = agent.get("color") or _AGENT_COLORS[color_idx % len(_AGENT_COLORS)]
+        color_idx += 1
+        description = agent.get("description", f"{agent_name} agent")
 
         AGENT_TO_OPENCLAW_ID[agent_name] = agent_id
         AGENT_META[agent_name] = {"id": agent_id, "icon": icon, "color": color, "description": description}
@@ -178,7 +151,7 @@ OPENCLAW_ENABLED = bool(OPENCLAW_TOKEN)
 AGENT_AUTO_DETECT = os.getenv("AGENT_AUTO_DETECT", "true").lower() in ("true", "1", "yes")
 # Auto-stop agent sessions when a task is moved to Done
 AUTO_STOP_ON_DONE = os.getenv("AUTO_STOP_ON_DONE", "true").lower() in ("true", "1", "yes")
-# Comma-separated list of agent_id:Display Name pairs, e.g. "main:Jarvis,architect:Architect,code-reviewer:Code Reviewer"
+# Comma-separated list of agent_id:Display Name pairs, e.g. "main:Assistant,architect:Architect"
 AGENTS_ENV = os.getenv("AGENTS", "")
 
 # Project configuration
